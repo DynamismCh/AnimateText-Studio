@@ -1,32 +1,55 @@
 # AnimateText Studio
 
-Children’s animated-series creator built with React, TypeScript, Vite, Tailwind CSS, and an AppDeploy-hosted API.
+Children’s animated-series creator built with React, TypeScript, Vite, and Tailwind CSS.
 
-## Current source snapshot
+## Repository
 
-This repository is a backup of the source currently available from the AppDeploy project `animatetext-0cv969` (snapshot version `1790912718446`). It preserves the original app source before further upgrades.
+This repository is the source backup for the AppDeploy project `animatetext-0cv969`. The frontend has been adapted to use a standard `fetch()` API wrapper so it can talk to either the AppDeploy backend or the included standalone backend.
 
-## Portability work started
+## Free standalone backend (first portability milestone)
 
-- Replaced the frontend's direct `@appdeploy/client` import with a small standard `fetch()` API wrapper at `src/lib/api.ts`.
-- Added `src/vite-env.d.ts` for the optional `VITE_API_BASE_URL` setting.
-- Added `.env.example` to document the API URL configuration.
+The included `backend/server.mjs` uses Node.js built-in modules only; it does not require a paid API key or extra server packages. It supports:
 
-To point the frontend at a separately hosted API, copy `.env.example` to `.env.local` and set `VITE_API_BASE_URL` to that API's base URL.
+- Uploading and deleting character images.
+- Creating four-shot storyboards with character actions and dialogue.
+- Generating simple SVG scene backgrounds.
+- Serving uploaded images and scene backgrounds to the frontend.
 
-## Important limitations
+**Important trade-off:** this free mode is a basic offline-friendly fallback, not AI image generation. It creates simple illustrated backgrounds and a scripted storyboard. It does not yet provide AI-written stories, generated character art, advanced facial animation, or a complete commercial-grade animation pipeline. Browser voice synthesis and WebM export remain frontend features.
 
-This is not yet a fully standalone deployment. The existing backend still imports `@appdeploy/sdk` and uses AppDeploy AI generation, image generation, and storage services. Those must be replaced with alternatives before the complete application can run outside AppDeploy.
+### Run locally
 
-The app also has not yet been built or tested in a clean local environment. Treat this as source preservation and the first portability change, not a confirmed independent working build.
+Requirements: Node.js 20 or newer.
+
+1. Install frontend dependencies:
+   `npm install`
+2. Copy `.env.example` to `.env.local` and set:
+   `VITE_API_BASE_URL=http://localhost:8787`
+3. Start the backend in one terminal:
+   `npm run server`
+4. Start the frontend in another terminal:
+   `npm run dev`
+5. Open the local Vite URL shown in the terminal.
+
+Uploaded characters and generated SVG scenes are stored in the local `data/` folder. Back up this folder if you want to keep your assets. Do not commit private character images.
+
+### Health check
+
+When the backend is running, visit `http://localhost:8787/api/health`. A healthy server returns JSON with `ok: true`.
 
 ## Frontend
 
 - React + TypeScript + Vite
 - Tailwind CSS
-- Character uploads and selection
-- Story/episode generation through the backend API
-- Browser speech synthesis and WebM export
+- Character upload and selection
+- Four-shot storyboard and character action preview
+- Browser speech synthesis, background tones, sound effects, and WebM export
+
+## Current limitations and next work
+
+- The standalone server has been added to the repository, but has not yet been run in a clean environment or verified end-to-end.
+- The existing AppDeploy backend file still uses AppDeploy SDK services. The standalone path is the new `backend/server.mjs`; do not assume the AppDeploy deployment now uses it.
+- The next verification step is to run the GitHub build check, fix any errors, then test upload → generate → preview → export locally.
 
 ## Safety
 
