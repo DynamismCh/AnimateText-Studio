@@ -96,7 +96,7 @@ function App(){
    third?`${lead}: We did it together, ${friend} and ${third}!`:`${lead}: Working together makes every adventure better!`
   ];
   const texts=[
-   `${lead} begins an adventure. ${idea.trim().replace(/\\s+/g,' ').slice(0,150)}`,
+   `${lead} begins an adventure. ${idea.trim().replace(/\s+/g,' ').slice(0,150)}`,
    `${lead} discovers something unexpected and calls for help.`,
    `${lead} and ${friend} work together to solve the problem.`,
    'The friends celebrate their discovery and learn something new.'
