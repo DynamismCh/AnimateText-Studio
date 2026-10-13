@@ -1,0 +1,91 @@
+[
+  {
+    "name": "Create a multi-character animated episode",
+    "sanity": true,
+    "viewport": "desktop",
+    "covers": [
+      "episode story generation",
+      "character layer choreography",
+      "walk run and interaction actions",
+      "multi-shot storyboard",
+      "character-consistent cast"
+    ],
+    "description": "Verifies a story with selected characters creates scenes with independently choreographed character actions.",
+    "steps": [
+      "Upload two character images",
+      "Select both characters",
+      "Enter a children’s story",
+      "Click Make animated episode",
+      "Press Play"
+    ],
+    "expected": "The storyboard appears and characters visibly move independently over the scene, including walk/run/talk/smile or meet actions."
+  },
+  {
+    "name": "Preview voices and audio controls",
+    "viewport": "desktop",
+    "covers": [
+      "voice preview",
+      "voice selection",
+      "background music control",
+      "sound effects control"
+    ],
+    "description": "Verifies the generated episode exposes voice preview and audio controls.",
+    "steps": [
+      "Create an animated episode",
+      "Choose an available preview voice",
+      "Click the voice preview button",
+      "Toggle background music and sound effects"
+    ],
+    "expected": "The selected device voice previews the current shot and the music and sound-effect controls visibly change state."
+  },
+  {
+    "name": "Export independently animated characters",
+    "viewport": "desktop",
+    "covers": [
+      "character animation export",
+      "WebM episode export",
+      "background music export",
+      "sound effects export"
+    ],
+    "description": "Verifies character-layer animation is rendered into the downloadable WebM with audio.",
+    "steps": [
+      "Create an animated episode",
+      "Enable background music and sound effects",
+      "Click Export episode"
+    ],
+    "expected": "A WebM episode is rendered and downloaded with the moving character layers and audio effects."
+  },
+  {
+    "name": "Reuse and select custom characters",
+    "viewport": "desktop",
+    "covers": [
+      "character library",
+      "multi-character selection",
+      "persistent character storage"
+    ],
+    "description": "Verifies custom characters remain available and can be selected for another episode.",
+    "steps": [
+      "Upload character images",
+      "Select the characters",
+      "Create an episode using the selected cast"
+    ],
+    "expected": "The selected characters remain in the Cast panel and the generated episode assigns actions to them."
+  },
+  {
+    "name": "Reject missing story or cast",
+    "viewport": "mobile",
+    "covers": [
+      "required story validation",
+      "required character validation",
+      "mobile workflow guardrail"
+    ],
+    "description": "Verifies the app blocks episode generation when required story or cast data is missing.",
+    "steps": [
+      "Leave the story empty",
+      "Attempt to make an episode",
+      "Remove all selected characters",
+      "Try again"
+    ],
+    "expected": "A clear validation message is shown and no episode is created."
+  }
+]
