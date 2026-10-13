@@ -1,8 +1,8 @@
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
 
-type ApiResponse<T> = { data: T };
+type ApiResponse<T = any> = { data: T };
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<ApiResponse<T>> {
+async function request<T = any>(path: string, init: RequestInit = {}): Promise<ApiResponse<T>> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     headers: {
@@ -30,10 +30,10 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<ApiResp
 }
 
 export const api = {
-  post<T = unknown>(path: string, body: unknown) {
+  post<T = any>(path: string, body: unknown) {
     return request<T>(path, { method: 'POST', body: JSON.stringify(body) });
   },
-  delete<T = unknown>(path: string) {
+  delete<T = any>(path: string) {
     return request<T>(path, { method: 'DELETE' });
   },
 };
