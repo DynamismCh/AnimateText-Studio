@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { api, resolveMediaUrl } from './lib/api';
+import { resolveMediaUrl } from './lib/api';
+import { deleteSavedCharacter, loadSavedCharacters, saveCharacterImage } from './lib/localCharacters';
 import { Film, Upload, Sparkles, Play, Pause, Download, Trash2, Plus, Clapperboard, Wand2, Mic2, Volume2, Music, VolumeX, Users, Smile } from 'lucide-react';
 
 type Character={id:string;name:string;url:string;path:string};
@@ -36,6 +37,10 @@ function App(){
  const totalDuration=useMemo(()=>episode?.shots.reduce((n,s)=>n+s.duration,0)||0,[episode]);
 
  useEffect(()=>{
+  loadSavedCharacters().then(setCharacters).catch(()=>setMessage('Browser storage is unavailable. Please use a normal browser window and try again.'));
+ },[]);
+
+ useEffect(()=>{
   const loadVoices=()=>setVoices(window.speechSynthesis.getVoices());
   loadVoices(); window.speechSynthesis.addEventListener('voiceschanged',loadVoices);
   return()=>window.speechSynthesis.removeEventListener('voiceschanged',loadVoices);
@@ -60,31 +65,68 @@ function App(){
 
  async function addCharacter(file:File){
   if(!file.type.startsWith('image/'))return setMessage('Please choose an image file for your character.');
-  setBusy(true); setMessage('Saving your character...');
+  setBusy(true); setMessage('Preparing and saving your character on this device...');
   try{
-   const reader=new FileReader();
-   const data=await new Promise<string>((resolve,reject)=>{reader.onload=()=>resolve(String(reader.result).split(',')[1]||'');reader.onerror=reject;reader.readAsDataURL(file);});
-   const res=await api.post('/api/characters',{name:file.name.replace(/\.[^.]+$/,''),data,mimeType:file.type});
-   const c=res.data.character as Character;
-   setCharacters(p=>[...p,c]); setSelected(p=>p.length<3?[...p,c.id]:p); setMessage('Character saved. You can select up to 3 characters for an episode.');
-  }catch{setMessage('Could not save the character. Please try again.')}finally{setBusy(false)}
+   const c=await saveCharacterImage(file);
+   setCharacters(p=>[...p,c]); setSelected(p=>p.length<3?[...p,c.id]:p);
+   setMessage('Character saved on this device. You can select up to 3 characters for an episode.');
+  }catch(error){
+   setMessage(error instanceof Error?error.message:'Could not save this character. Please try another image.');
+  }finally{setBusy(false)}
  }
- async function createEpisode(){
+ function sceneBackground(index:number){
+  const palettes=[['#b7e7ff','#e9f8ff','#71bf76','#3e8d5a'],['#ffdfb0','#fff4d6','#e6a65b','#a95c4a'],['#c9c4ff','#f3eaff','#86c5a1','#467d71'],['#a8e4e0','#e4fbf6','#8fc56f','#477c48']];
+  const [sky,glow,hill,ground]=palettes[index%palettes.length];
+  const sunX=[1030,210,1020,260][index%4];
+  const headings=['A bright new day','A surprising discovery','A little challenge','A happy ending'];
+  const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720"><defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop stop-color="${sky}"/><stop offset="1" stop-color="${glow}"/></linearGradient></defs><rect width="1280" height="720" fill="url(#sky)"/><circle cx="${sunX}" cy="130" r="65" fill="#fff4a8"/><g fill="#fff" opacity=".7"><ellipse cx="270" cy="150" rx="95" ry="24"/><ellipse cx="320" cy="135" rx="52" ry="32"/><ellipse cx="820" cy="220" rx="115" ry="27"/></g><path d="M0 430 Q180 300 370 420 T760 410 T1280 385 V720 H0Z" fill="${hill}"/><path d="M0 535 Q220 455 430 540 T850 510 T1280 520 V720 H0Z" fill="${ground}"/><path d="M480 720 Q560 620 625 555 Q700 495 760 500 Q810 520 855 720Z" fill="#f3e1a2" opacity=".85"/><g transform="translate(130 300)" opacity=".8"><rect x="0" y="65" width="22" height="130" rx="8" fill="#805a42"/><circle cx="10" cy="40" r="68" fill="#4d9c65"/><circle cx="-30" cy="75" r="45" fill="#65b875"/></g><g transform="translate(1080 320)" opacity=".85"><rect x="0" y="60" width="22" height="130" rx="8" fill="#805a42"/><circle cx="10" cy="35" r="70" fill="#4d9c65"/><circle cx="-30" cy="72" r="45" fill="#65b875"/></g><text x="640" y="85" text-anchor="middle" font-family="Verdana,sans-serif" font-size="28" font-weight="700" fill="#264653">${headings[index%headings.length]}</text></svg>`;
+  return 'data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg);
+ }
+ function createEpisode(){
   if(!idea.trim())return setMessage('Describe the story first.');
   if(!selected.length)return setMessage('Select at least one character first.');
-  setBusy(true);setPlaying(false);setMessage('Directing scenes, separating the action into character layers, and generating 4 animated shots...');
-  try{
-   const chosen=characters.filter(c=>selected.includes(c.id)).slice(0,3);
-   const res=await api.post('/api/create-episode',{seriesTitle,episodeTitle,idea,characters:chosen.map(c=>({id:c.id,name:c.name}))});
-   setEpisode(res.data.episode as Episode);setShotIndex(0);setElapsed(0);
-   setMessage('Episode ready. Play it to see characters walk, run, talk, smile and interact.');
-  }catch{setMessage('Episode creation failed. Try a shorter story or try again.')}finally{setBusy(false)}
+  const chosen=characters.filter(c=>selected.includes(c.id)).slice(0,3);
+  if(!chosen.length)return setMessage('Upload and select at least one character first.');
+  setBusy(true);setPlaying(false);setMessage('Creating a four-scene storyboard with your characters...');
+  const lead=chosen[0].name,friend=chosen[1]?.name||'a new friend',third=chosen[2]?.name;
+  const lines=[
+   `${lead}: What a wonderful day to explore!`,
+   `${lead}: Look what I found! ${friend}, come and see!`,
+   `${friend}: We can solve this together!`,
+   third?`${lead}: We did it together, ${friend} and ${third}!`:`${lead}: Working together makes every adventure better!`
+  ];
+  const texts=[
+   `${lead} begins an adventure. ${idea.trim().replace(/\\s+/g,' ').slice(0,150)}`,
+   `${lead} discovers something unexpected and calls for help.`,
+   `${lead} and ${friend} work together to solve the problem.`,
+   'The friends celebrate their discovery and learn something new.'
+  ];
+  const shots:Shot[]=texts.map((text,i)=>({
+   text:text.slice(0,180),dialogue:lines[i].slice(0,180),duration:5,
+   motion:['walk','run','bounce','idle'][i] as Shot['motion'],
+   camera:['wide','medium','close','wide'][i] as Shot['camera'],
+   expression:['curious','surprised','excited','happy'][i] as Shot['expression'],
+   interaction:['Starting the adventure','Sharing a discovery','Helping each other','Celebrating together'][i],
+   imageUrl:sceneBackground(i),
+   actorActions:chosen.map((character,ci)=>({
+    characterId:character.id,
+    action:(i===0?(ci===0?'walk':'idle'):i===1?(ci===0?'run':'meet'):i===2?(ci===0?'talk':'jump'):'idle') as ActorAction['action'],
+    expression:['curious','excited','happy','smile'][i] as ActorAction['expression'],
+    x:Math.max(18,Math.min(82,28+ci*(chosen.length>1?38/(chosen.length-1):0)))
+   }))
+  }));
+  setEpisode({title:episodeTitle||'Episode 1',logline:idea.trim().slice(0,300),shots});
+  setShotIndex(0);setElapsed(0);setMessage('Episode ready. Play it to see your characters move, talk and interact. No server connection is required.');
+  setBusy(false);
  }
  async function removeCharacter(id:string){
-  try{await api.delete('/api/characters/'+id)}catch{}
+  const character=characters.find(c=>c.id===id);
+  try{await deleteSavedCharacter(id)}catch{}
+  if(character?.url.startsWith('blob:'))URL.revokeObjectURL(character.url);
   setCharacters(p=>p.filter(c=>c.id!==id));setSelected(p=>p.filter(x=>x!==id));
   if(selected.includes(id)&&selected.length===1)setEpisode(null);
  }
+
  function previewVoice(){
   if(!shot)return; window.speechSynthesis.cancel();
   const u=new SpeechSynthesisUtterance(shot.dialogue||shot.text||'Hello! Let us begin our adventure.');
