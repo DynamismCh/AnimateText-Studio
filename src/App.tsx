@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { api } from '@appdeploy/client';
+import { api } from './lib/api';
 import { Film, Upload, Sparkles, Play, Pause, Download, Trash2, Plus, Clapperboard, Wand2, Mic2, Volume2, Music, VolumeX, Users, Smile } from 'lucide-react';
 
 type Character={id:string;name:string;url:string;path:string};
