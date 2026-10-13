@@ -137,18 +137,25 @@ function App(){
   return 'actor '+a.action+' '+a.expression+(a.action==='meet'?' meet':'');
  }
  async function exportEpisode(){
-  if(!episode)return;
-  setExporting(true);setPlaying(false);window.speechSynthesis.cancel();setMessage('Rendering the character animation and audio into WebM...');
+  if(!episode||exporting)return;
+  if(!('MediaRecorder' in window)||!('captureStream' in HTMLCanvasElement.prototype)){
+   setMessage('Video export is not supported by this browser. Please try the latest Chrome or Edge.');return;
+  }
+  setExporting(true);setPlaying(false);window.speechSynthesis.cancel();setMessage('Rendering your animated episode. Keep this tab open until the download starts...');
+  let audioCtx:AudioContext|undefined;
+  let stream:MediaStream|undefined;
+  try{
   const canvas=document.createElement('canvas');canvas.width=1280;canvas.height=720;
-  const ctx=canvas.getContext('2d');if(!ctx){setExporting(false);return}
-  const mime=MediaRecorder.isTypeSupported('video/webm;codecs=vp9')?'video/webm;codecs=vp9':'video/webm';
-  const audioCtx=new AudioContext(),audioDest=audioCtx.createMediaStreamDestination(),master=audioCtx.createGain();
+  const ctx=canvas.getContext('2d');if(!ctx)throw new Error('Your browser could not start the video renderer.');
+  const mime=MediaRecorder.isTypeSupported('video/webm;codecs=vp9')?'video/webm;codecs=vp9':MediaRecorder.isTypeSupported('video/webm;codecs=vp8')?'video/webm;codecs=vp8':'video/webm';
+  audioCtx=new AudioContext();await audioCtx.resume();
+  const audioDest=audioCtx.createMediaStreamDestination(),master=audioCtx.createGain();
   master.gain.value=.24;master.connect(audioDest);
-  const playTone=(freq:number,start:number,duration:number,gainValue:number)=>{const osc=audioCtx.createOscillator(),gain=audioCtx.createGain();osc.type='sine';osc.frequency.value=freq;gain.gain.setValueAtTime(0,start);gain.gain.linearRampToValueAtTime(gainValue,start+.03);gain.gain.exponentialRampToValueAtTime(.001,start+duration);osc.connect(gain);gain.connect(master);osc.start(start);osc.stop(start+duration+.05)};
-  let audioTime=audioCtx.currentTime+.08;
+  const playTone=(freq:number,start:number,duration:number,gainValue:number)=>{const osc=audioCtx!.createOscillator(),gain=audioCtx!.createGain();osc.type='sine';osc.frequency.value=freq;gain.gain.setValueAtTime(.0001,start);gain.gain.linearRampToValueAtTime(gainValue,start+.03);gain.gain.exponentialRampToValueAtTime(.0001,start+duration);osc.connect(gain);gain.connect(master);osc.start(start);osc.stop(start+duration+.05)};
+  let audioTime=audioCtx.currentTime+.12;
   for(const s of episode.shots){if(musicOn)[261.63,329.63,392,329.63].forEach((n,i)=>playTone(n,audioTime+i*.32,.42,.035));if(sfxOn)playTone(s.motion==='run'?330:s.motion==='walk'?220:520,audioTime+.05,.16,.08);audioTime+=s.duration}
-  const stream=canvas.captureStream(30);stream.addTrack(audioDest.stream.getAudioTracks()[0]);
-  const recorder=new MediaRecorder(stream,{mimeType}),chunks:Blob[]=[];recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};recorder.start();
+  stream=canvas.captureStream(30);stream.addTrack(audioDest.stream.getAudioTracks()[0]);
+  const recorder=new MediaRecorder(stream,{mimeType}),chunks:Blob[]=[];recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};recorder.start(250);
   for(const s of episode.shots){
    const scene=new Image();scene.crossOrigin='anonymous';scene.src=resolveMediaUrl(s.imageUrl);await new Promise<void>(r=>{scene.onload=()=>r();scene.onerror=()=>r()});
    const actorData=(s.actorActions||[]).map(a=>({a,c:characters.find(c=>c.id===a.characterId)})).filter(x=>x.c);
@@ -159,17 +166,36 @@ function App(){
     if(scene.complete&&scene.naturalWidth){const scale=Math.max(1280/scene.width,720/scene.height);const w=scene.width*scale,h=scene.height*scale;ctx.drawImage(scene,(1280-w)/2,(720-h)/2,w,h)}
     for(const x of actorImgs){
      const a=x.a,img=x.img;const base=Math.min(360/Math.max(1,img.width),430/Math.max(1,img.height));const w=img.width*base,h=img.height*base;
-     const start=a.x||50;let pos=start;
-     if(a.action==='walk')pos=start+(p-.5)*220;if(a.action==='run')pos=start+(p-.5)*420;if(a.action==='meet')pos=start+(p-.5)*(start<50?420:-420);
+     const start=(a.x||50)*12.8;let offset=0;
+     if(a.action==='walk')offset=(p-.5)*190;
+     if(a.action==='run')offset=(p-.5)*300;
+     if(a.action==='meet')offset=(p-.5)*(start<640?250:-250);
      const bob=a.action==='jump'?Math.abs(Math.sin(p*Math.PI*4))*55:a.action==='walk'||a.action==='run'?Math.abs(Math.sin(p*Math.PI*6))*13:Math.sin(p*Math.PI*2)*5;
-     ctx.save();ctx.translate(pos*12.8,(720-h)/2+bob);ctx.scale(a.action==='run'&&Math.sin(p*Math.PI*8)<0?-1:1,1);ctx.drawImage(img,-w/2,-h/2,w,h);ctx.restore();
+     const facingLeft=(a.action==='run'||a.action==='walk')&&Math.sin(p*Math.PI*6)<0;
+     ctx.save();ctx.translate(Math.max(w/2+8,Math.min(1280-w/2-8,start+offset)),(720-h)/2+bob);ctx.scale(facingLeft?-1:1,1);ctx.drawImage(img,-w/2,-h/2,w,h);ctx.restore();
     }
     ctx.fillStyle='rgba(0,0,0,.62)';ctx.fillRect(48,580,1184,105);ctx.fillStyle='#ddd6fe';ctx.font='600 19px sans-serif';ctx.fillText((s.interaction||s.expression).toUpperCase()+' • '+s.camera.toUpperCase(),72,610);ctx.fillStyle='#fff';ctx.font='700 29px sans-serif';ctx.fillText((s.dialogue||s.text).slice(0,90),72,654);
     await new Promise(r=>requestAnimationFrame(r));
    }
   }
-  recorder.stop();await new Promise<void>(r=>{recorder.onstop=()=>r()});await audioCtx.close();
-  const blob=new Blob(chunks,{type:'video/webm'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=episodeTitle.toLowerCase().replace(/[^a-z0-9]+/g,'-')+'.webm';a.click();URL.revokeObjectURL(url);setExporting(false);setMessage('Episode rendered successfully.');
+  await new Promise<void>((resolve,reject)=>{
+   recorder.onerror=()=>reject(new Error('The browser stopped recording the video.'));
+   recorder.onstop=()=>chunks.length?resolve():reject(new Error('The browser created an empty video. Please try again.'));
+   recorder.stop();
+  });
+  const blob=new Blob(chunks,{type:recorder.mimeType||'video/webm'});
+  if(!blob.size)throw new Error('The exported video is empty. Please try again in Chrome or Edge.');
+  const url=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=url;a.download=(episodeTitle||'animated-episode').toLowerCase().replace(/[^a-z0-9]+/g,'-')+'.webm';
+  document.body.appendChild(a);a.click();a.remove();window.setTimeout(()=>URL.revokeObjectURL(url),60000);
+  setMessage('Video downloaded. It is a WebM file; open it in a browser or compatible video player.');
+  }catch(error){
+   setMessage(error instanceof Error?error.message:'Video export failed. Please try again in Chrome or Edge.');
+  }finally{
+   stream?.getTracks().forEach(track=>track.stop());
+   if(audioCtx&&audioCtx.state!=='closed')await audioCtx.close().catch(()=>undefined);
+   setExporting(false);
+  }
  }
 
  return <div className="min-h-screen bg-slate-950 text-white">
