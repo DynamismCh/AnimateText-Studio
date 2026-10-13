@@ -2,6 +2,12 @@ const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, ''
 
 type ApiResponse<T = any> = { data: T };
 
+export function resolveMediaUrl(value?: string): string {
+  if (!value) return '';
+  if (/^https?:\/\//i.test(value) || value.startsWith('data:') || value.startsWith('blob:')) return value;
+  return API_BASE_URL ? `${API_BASE_URL}${value.startsWith('/') ? value : `/${value}`}` : value;
+}
+
 async function request<T = any>(path: string, init: RequestInit = {}): Promise<ApiResponse<T>> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
