@@ -1,0 +1,49 @@
+name: Sync Wan 2.2 Fast Space source
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/sync-wan22-space.yml"
+      - "wan22-space/README.md"
+
+permissions:
+  contents: write
+
+jobs:
+  sync-upstream:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out AnimateText Studio
+        uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Fetch the public Hugging Face Space source
+        run: |
+          git clone --depth 1 https://huggingface.co/spaces/zerogpu-aoti/wan2-2-fp8da-aoti-faster /tmp/wan22-fast
+          mkdir -p wan22-space/upstream
+          for file in app.py aoti.py optimization.py optimization_utils.py requirements.txt README.md; do
+            if [ -f "/tmp/wan22-fast/$file" ]; then
+              cp "/tmp/wan22-fast/$file" "wan22-space/upstream/$file"
+            fi
+          done
+          cat > wan22-space/upstream/SOURCE_NOTICE.md <<'EOF'
+          # Upstream source notice
+          
+          These files are mirrored from the public Hugging Face Space:
+          https://huggingface.co/spaces/zerogpu-aoti/wan2-2-fp8da-aoti-faster
+          
+          They are kept in a separate folder so upstream demo code does not overwrite AnimateText Studio.
+          Check the upstream repository and each model/LoRA licence before redistributing or deploying.
+          EOF
+      - name: Commit source mirror when it changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add wan22-space/upstream
+          if git diff --cached --quiet; then
+            echo "Upstream source is already up to date."
+          else
+            git commit -m "Mirror Wan 2.2 Fast Space source"
+            git push origin main
+          fi
