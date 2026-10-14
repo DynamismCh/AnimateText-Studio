@@ -34,7 +34,7 @@ export default async function handler(req: RequestLike, res: ResponseLike) {
   if (origin && host) {
     try {
       const originHost = new URL(origin).host;
-      if (originHost !== host && !originHost.endsWith('.' + host)) {
+      if (originHost !== host) {
         return res.status(403).json({ error: 'This assistant only accepts requests from the AnimateText Studio site.' });
       }
     } catch {
@@ -85,11 +85,15 @@ export default async function handler(req: RequestLike, res: ResponseLike) {
     'A video preview is available: ' + String(Boolean(context.videoReady)),
   ].join('\n');
 
-  const contents = messages.map((message) => ({
+  const conversation = [...messages];
+  while (conversation.length && conversation[0].role === 'model') conversation.shift();
+  const contents = conversation.map((message) => ({
     role: message.role,
     parts: [{ text: message.text }]
   }));
-  contents[0].parts[0].text = contextText + '\n\nConversation:\n' + contents[0].parts[0].text;
+  if (contents[0]?.parts[0]) {
+    contents[0].parts[0].text = contextText + '\n\nConversation:\n' + contents[0].parts[0].text;
+  }
 
   const model = process.env.GEMINI_MODEL || 'gemini-3.5-flash';
   try {
