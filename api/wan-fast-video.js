@@ -1,5 +1,8 @@
 import { Readable } from 'node:stream';
 
+// Video responses can take longer than the default serverless function window.
+export const config = { maxDuration: 60 };
+
 const ALLOWED_HOSTS = ['hf.space', 'huggingface.co', 'hf.co'];
 
 function isAllowedHost(hostname) {
@@ -41,6 +44,13 @@ export default async function handler(req, res) {
     }
 
     const contentType = upstream.headers.get('content-type') || 'video/mp4';
+    if (!contentType.toLowerCase().startsWith('video/') && !contentType.toLowerCase().includes('octet-stream')) {
+      const preview = await upstream.text().catch(() => '');
+      return res.status(502).json({
+        error: 'The model host did not return a video file to AnimateText Studio.',
+        detail: `Received content type: ${contentType}. ${preview.slice(0, 180)}`
+      });
+    }
     res.status(upstream.status);
     res.setHeader('Content-Type', contentType);
     res.setHeader('Cache-Control', 'private, no-store, max-age=0');
