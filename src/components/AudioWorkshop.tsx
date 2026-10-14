@@ -136,12 +136,24 @@ export default function AudioWorkshop({ videoUrl = '' }: { videoUrl?: string }) 
     const audioUrl = lipSyncSpeaker === 'Sunny' ? sunnyLineAudioUrl : bloopLineAudioUrl;
     if (!uploadedVideoFile) { setLipSyncStatus('Choose a video file from your computer first.'); return; }
     if (!audioUrl) { setLipSyncStatus('Generate the selected character’s separate voice clip first.'); return; }
-    setLipSyncBusy(true); setLipSyncStatus('Connecting to the free MuseTalk lip-sync demo. It may take several minutes and uses its own shared GPU allowance…');
+    setLipSyncBusy(true); setLipSyncStatus('Checking the free MuseTalk demo connection…');
+    let stage = 'connecting to the MuseTalk service';
     try {
-      const audioBlob = await (await fetch(audioUrl)).blob();
+      const audioResponse = await fetch(audioUrl);
+      if (!audioResponse.ok) throw new Error('The generated voice clip could not be read. Generate that character’s voice again.');
+      const audioBlob = await audioResponse.blob();
       const audioFile = new File([audioBlob], lipSyncSpeaker.toLowerCase() + '-dialogue.wav', { type: 'audio/wav' });
       const { Client, handle_file } = await import('@gradio/client');
-      const client = await Client.connect(LIPSYNC_SPACE);
+      const client = await Client.connect(LIPSYNC_SPACE, {
+        status_callback: (spaceStatus: any) => {
+          if (spaceStatus?.status === 'running') setLipSyncStatus('MuseTalk is awake. Uploading the video and voice clip…');
+          else if (spaceStatus?.status === 'sleeping' || spaceStatus?.status === 'building' || spaceStatus?.status === 'starting') setLipSyncStatus('MuseTalk is waking up or starting. Please wait…');
+          else if (spaceStatus?.status === 'error' || spaceStatus?.status === 'space_error') setLipSyncStatus('MuseTalk is reporting a service error. Try opening the demo directly.');
+        }
+      });
+      stage = 'uploading the video and voice clip';
+      setLipSyncStatus('Connected. Uploading your video and voice clip to MuseTalk…');
+      stage = 'running the lip-sync model';
       const result: any = await client.predict('/generate', {
         audio: handle_file(audioFile),
         video: handle_file(uploadedVideoFile),
@@ -159,7 +171,11 @@ export default function AudioWorkshop({ videoUrl = '' }: { videoUrl?: string }) 
       setLipSyncStatus('MuseTalk returned a lip-synced clip for ' + lipSyncSpeaker + '. Please preview it carefully; stylized cartoon faces may not be detected correctly.');
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Unknown lip-sync error.';
-      setLipSyncStatus('Lip-sync did not finish: ' + detail + ' You can also open the MuseTalk demo and upload the same video and WAV file there.');
+      const isFetchFailure = /failed to fetch|networkerror|load failed/i.test(detail);
+      const explanation = isFetchFailure
+        ? ' The browser could not reach MuseTalk while ' + stage + '. This can happen if the demo is waking up, its browser API upload is blocked, or the Space is temporarily unavailable. No lip-sync result was created. Open the demo directly, check that it finishes loading, and upload the same video and voice WAV there.'
+        : '';
+      setLipSyncStatus('Lip-sync did not finish: ' + detail + '.' + explanation);
     } finally { setLipSyncBusy(false); }
   }
 
