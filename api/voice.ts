@@ -44,16 +44,18 @@ export default async function handler(req: RequestLike, res: ResponseLike) {
   limits.set(ip, current && current.resetAt > now ? { count: current.count + 1, resetAt: current.resetAt } : { count: 1, resetAt: now + WINDOW_MS });
 
   const body = (req.body && typeof req.body === 'object' ? req.body : {}) as {
-    script?: unknown; sunnyVoice?: unknown; bloopVoice?: unknown; style?: unknown;
+    script?: unknown; sunnyVoice?: unknown; bloopVoice?: unknown; style?: unknown; speaker?: unknown;
   };
   const script = typeof body.script === 'string' ? body.script.trim().slice(0, 5000) : '';
-  if (!script) return res.status(400).json({ error: 'Enter dialogue for Sunny and Bloop first.' });
-  if (!/(sunny|bloop)\s*:/i.test(script)) return res.status(400).json({ error: 'Write each line with a speaker label, for example Sunny: Hello! or Bloop: Hi!' });
+  if (!script) return res.status(400).json({ error: 'Enter dialogue first.' });
+  const speaker = body.speaker === 'Sunny' || body.speaker === 'Bloop' ? body.speaker : '';
+  if (!speaker && !/(sunny|bloop)\s*:/i.test(script)) return res.status(400).json({ error: 'Write each line with a speaker label, for example Sunny: Hello! or Bloop: Hi!' });
 
   const sunnyVoice = typeof body.sunnyVoice === 'string' ? body.sunnyVoice : 'Kore';
   const bloopVoice = typeof body.bloopVoice === 'string' ? body.bloopVoice : 'Puck';
   const allowed = new Set(['Kore','Puck','Charon','Aoede','Leda','Orus','Zephyr','Fenrir']);
   if (!allowed.has(sunnyVoice) || !allowed.has(bloopVoice)) return res.status(400).json({ error: 'Choose one of the available built-in voices.' });
+  const selectedVoice = speaker === 'Sunny' ? sunnyVoice : speaker === 'Bloop' ? bloopVoice : '';
   const style = typeof body.style === 'string' ? body.style.slice(0, 300) : 'Playful, warm, expressive children’s cartoon dialogue. Sunny sounds cheerful and friendly; Bloop sounds curious and funny. Speak clearly at a natural pace.';
   const model = process.env.GEMINI_TTS_MODEL || 'gemini-2.5-flash-preview-tts';
 
@@ -61,13 +63,15 @@ export default async function handler(req: RequestLike, res: ResponseLike) {
     const upstream = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent?key=' + encodeURIComponent(key), {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: style + '\nRead this dialogue aloud. The labels Sunny and Bloop identify different speakers and should not be spoken aloud. Preserve the dialogue wording.\n\n' + script }] }],
+        contents: [{ parts: [{ text: style + (speaker ? '\nRead only this character’s dialogue aloud. Do not add words or say the character name. Preserve the wording.\n\n' : '\nRead this dialogue aloud. The labels Sunny and Bloop identify different speakers and should not be spoken aloud. Preserve the dialogue wording.\n\n') + script }] }],
         generationConfig: {
           responseModalities: ['AUDIO'],
-          speechConfig: { multiSpeakerVoiceConfig: { speakerVoiceConfigs: [
-            { speaker: 'Sunny', voiceConfig: { prebuiltVoiceConfig: { voiceName: sunnyVoice } } },
-            { speaker: 'Bloop', voiceConfig: { prebuiltVoiceConfig: { voiceName: bloopVoice } } }
-          ] } }
+          speechConfig: speaker
+            ? { voiceConfig: { prebuiltVoiceConfig: { voiceName: selectedVoice } } }
+            : { multiSpeakerVoiceConfig: { speakerVoiceConfigs: [
+                { speaker: 'Sunny', voiceConfig: { prebuiltVoiceConfig: { voiceName: sunnyVoice } } },
+                { speaker: 'Bloop', voiceConfig: { prebuiltVoiceConfig: { voiceName: bloopVoice } } }
+              ] } }
         }
       }),
       signal: AbortSignal.timeout(60000)
