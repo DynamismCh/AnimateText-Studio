@@ -1,4 +1,5 @@
 import { InferenceClient } from '@huggingface/inference';
+import { Readable } from 'node:stream';
 
 export const config = { maxDuration: 60 };
 
@@ -28,12 +29,12 @@ export default async function handler(req, res) {
     if (!video || typeof video.arrayBuffer !== 'function') {
       throw new Error('The video provider returned an unexpected response.');
     }
-    const bytes = Buffer.from(await video.arrayBuffer());
-    if (!bytes.length) throw new Error('The video provider returned an empty video.');
+    if (!video.size) throw new Error('The video provider returned an empty video.');
     res.setHeader('Content-Type', video.type || 'video/mp4');
     res.setHeader('Content-Disposition', 'inline; filename="animate-text-video.mp4"');
     res.setHeader('Cache-Control', 'no-store');
-    return res.status(200).send(bytes);
+    res.setHeader('Content-Length', String(video.size));
+    return Readable.fromWeb(video.stream()).pipe(res);
   } catch (error) {
     const detail = error instanceof Error ? error.message : 'Unknown provider error.';
     const lower = detail.toLowerCase();
