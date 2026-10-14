@@ -217,10 +217,33 @@ function App(){
   if(!motionReference){setAiMotionNote('Upload a short reference video showing the movement you want.');return}
   if(motionReference.size>100*1024*1024){setAiMotionNote('Please use a reference video smaller than 100 MB.');return}
   setAiMotionBusy(true);setAiMotionResult('');setAiMotionNote('Connecting to the hosted AI model. This may take time if the free GPU is busy.');
+  let aiStage='loading the AI client library';
   try{
-   const clientModuleUrl='https://cdn.jsdelivr.net/npm/@gradio/client@1.15.0/dist/index.min.js';
-   const {Client,handle_file}:any=await import(/* @vite-ignore */ clientModuleUrl);
-   const client=await Client.connect('hugging-apps/wan2-2-animate-2-14b');
+   let clientModule:any;
+   try{
+    const esmUrl='https://esm.sh/@gradio/client@1.15.0?bundle';
+    clientModule=await import(/* @vite-ignore */ esmUrl);
+   }catch(firstImportError){
+    const fallbackUrl='https://cdn.jsdelivr.net/npm/@gradio/client@1.15.0/+esm';
+    clientModule=await import(/* @vite-ignore */ fallbackUrl);
+   }
+   const {Client,handle_file}:any=clientModule;
+   if(typeof Client?.connect!=='function'||typeof handle_file!=='function')throw new Error('The browser could not load the AI client library. Check your internet connection, then refresh the app.');
+   aiStage='connecting to the Hugging Face AI studio';
+   let client:any;
+   let connectError:any;
+   for(let attempt=1;attempt<=2;attempt++){
+    try{
+     client=await Client.connect('hugging-apps/wan2-2-animate-2-14b');
+     connectError=null;
+     break;
+    }catch(error){
+     connectError=error;
+     if(attempt<2)await new Promise(resolve=>window.setTimeout(resolve,1800));
+    }
+   }
+   if(!client)throw new Error('Could not connect to the hosted AI studio after two attempts. Open the hosted studio link below to check whether it is awake or temporarily unavailable. '+(connectError instanceof Error?connectError.message:''));
+   aiStage='reading the hosted model API';
    const apiInfo=await client.view_api();
    const endpoints=apiInfo?.named_endpoints||{};
    const endpointKey=Object.keys(endpoints).find(key=>key.replace(/^\//,'')==='animate')||Object.keys(endpoints).find(key=>key.toLowerCase().includes('animate'));
@@ -255,6 +278,7 @@ function App(){
     payload.push(null);
    }
    if(!imageUsed||!videoUsed)throw new Error('The hosted model API has changed and no longer exposes the expected character-image and driving-video inputs. Use the Open hosted AI studio link for now.');
+   aiStage='sending your character and reference video to the GPU';
    setAiMotionNote('Sending your cutout and reference clip to the hosted GPU. Free generations can take several minutes or fail when the queue is busy.');
    const result=await client.predict(endpointKey,payload);
    const findMedia=(value:any):string=>{
@@ -274,7 +298,11 @@ function App(){
    if(!mediaUrl)throw new Error('The model returned a response, but no downloadable video URL could be detected. Try the hosted studio directly; its output format may have changed.');
    setAiMotionResult(mediaUrl);setShowAiMotionOnStage(true);setAiMotionNote('AI motion generation finished. The AI clip is now shown in the main stage. Preview it and download it below.');
   }catch(error){
-   setAiMotionNote(error instanceof Error?error.message+' If the free GPU is sleeping, busy, or rate-limited, open the hosted studio and retry there.':'AI motion generation failed. Please try again or use the hosted studio link.');
+   const detail=error instanceof Error?error.message:'Unknown network or model error.';
+   const networkHint=/failed to fetch|networkerror|load failed|fetch/i.test(detail)
+    ? ' This usually means the browser could not reach the hosted AI service. Refresh the page and retry; if it persists, open the hosted studio below to check its availability.'
+    : ' If the free GPU is busy or rate-limited, open the hosted studio below and retry there.';
+   setAiMotionNote('Failed while '+aiStage+': '+detail+networkHint);
   }finally{setAiMotionBusy(false)}
  }
  async function removeCharacter(id:string){
