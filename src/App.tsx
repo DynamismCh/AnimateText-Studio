@@ -116,17 +116,17 @@ export default function App() {
       });
 
       setStatus('WAN 2.2 is processing your request. Please wait and avoid refreshing the page.');
-      const result = await client.predict('/generate_video', [
-        handle_file(imageFile),
-        prompt.trim().slice(0, 1200),
-        4,
-        NEGATIVE_PROMPT,
-        5,
-        1,
-        1,
-        Math.floor(Math.random() * 2147483647),
-        true
-      ]);
+      const result = await client.predict('/generate_video', {
+        input_image: handle_file(imageFile),
+        prompt: prompt.trim().slice(0, 1200),
+        steps: 6,
+        negative_prompt: NEGATIVE_PROMPT,
+        duration_seconds: 3.5,
+        guidance_scale: 1,
+        guidance_scale_2: 1,
+        seed: Math.floor(Math.random() * 2147483647),
+        randomize_seed: true
+      });
       const generatedUrl = findVideo(result?.data?.[0] ?? result?.data);
       if (!generatedUrl) throw new Error('WAN 2.2 returned a response, but AnimateText Studio could not find the video link. The Space may have changed its output format.');
       setVideoUrl(generatedUrl);
