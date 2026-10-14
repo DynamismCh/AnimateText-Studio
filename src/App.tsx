@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Download, Film, ImagePlus, LoaderCircle, Play, Trash2, WandSparkles } from 'lucide-react';
+import { Bug, Download, Film, ImagePlus, LoaderCircle, MessageCircle, Play, Send, Trash2, WandSparkles } from 'lucide-react';
 import { deleteSavedCharacter, loadSavedCharacters, saveCharacterImage, type LocalCharacter } from './lib/localCharacters';
 
 const SPACE = 'zerogpu-aoti/wan2-2-fp8da-aoti-faster';
 const SPACE_URL = 'https://zerogpu-aoti-wan2-2-fp8da-aoti-faster.hf.space';
 const NEGATIVE_PROMPT = 'blurry, distorted body, extra limbs, flicker, text, watermark, static image';
+type AssistantMessage = { role: 'user' | 'model'; text: string };
+type DiagnosticEntry = { time: string; message: string };
 
 function findVideo(value: any): string {
   if (!value) return '';
@@ -42,6 +44,11 @@ export default function App() {
   const [status, setStatus] = useState('Upload a character, describe its movement, then generate a short video with WAN 2.2.');
   const [videoUrl, setVideoUrl] = useState('');
   const [downloadBusy, setDownloadBusy] = useState(false);
+  const [assistantMessages, setAssistantMessages] = useState<AssistantMessage[]>([{ role: 'model', text: 'Hi! I can help with Sunny and Bloop stories, animation prompts, and troubleshooting. I receive the app status and any recorded error when you send a message.' }]);
+  const [assistantInput, setAssistantInput] = useState('');
+  const [assistantBusy, setAssistantBusy] = useState(false);
+  const [lastError, setLastError] = useState('');
+  const [diagnostics, setDiagnostics] = useState<DiagnosticEntry[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -57,6 +64,77 @@ export default function App() {
       .catch(() => setStatus('Browser storage is unavailable. Please use a normal browser window and refresh the app.'));
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    const record = (message: string) => {
+      const entry = { time: new Date().toISOString(), message: message.slice(0, 1000) };
+      setDiagnostics((current) => [...current, entry].slice(-20));
+      setLastError(entry.message);
+    };
+    const onError = (event: ErrorEvent) => record('Browser error: ' + event.message + (event.filename ? ' (' + event.filename + ':' + event.lineno + ')' : ''));
+    const onRejection = (event: PromiseRejectionEvent) => record('Unhandled promise rejection: ' + String(event.reason));
+    window.addEventListener('error', onError);
+    window.addEventListener('unhandledrejection', onRejection);
+    return () => {
+      window.removeEventListener('error', onError);
+      window.removeEventListener('unhandledrejection', onRejection);
+    };
+  }, []);
+
+  async function sendAssistantMessage(override?: string) {
+    const text = (override ?? assistantInput).trim();
+    if (!text || assistantBusy) return;
+    const nextMessages: AssistantMessage[] = [...assistantMessages, { role: 'user', text }].slice(-10);
+    setAssistantMessages(nextMessages);
+    setAssistantInput('');
+    setAssistantBusy(true);
+    try {
+      const response = await fetch('/api/assistant', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: nextMessages,
+          context: {
+            status, lastError, prompt,
+            selectedCharacterName: characters.find((item) => item.id === selectedId)?.name ?? 'None selected',
+            videoReady: Boolean(videoUrl)
+          }
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || 'The assistant could not answer.');
+      setAssistantMessages((current) => [...current, { role: 'model', text: String(data.reply) }].slice(-12));
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Unknown assistant error.';
+      setAssistantMessages((current) => [...current, { role: 'model', text: 'I could not reply: ' + detail }].slice(-12));
+      setDiagnostics((current) => [...current, { time: new Date().toISOString(), message: 'AI assistant: ' + detail }].slice(-20));
+    } finally {
+      setAssistantBusy(false);
+    }
+  }
+
+  function downloadDiagnostics() {
+    const report = {
+      app: 'AnimateText Studio',
+      createdAt: new Date().toISOString(),
+      currentStatus: status,
+      latestError: lastError || 'No error recorded',
+      selectedCharacter: characters.find((item) => item.id === selectedId)?.name ?? 'None selected',
+      motionPrompt: prompt,
+      videoPreviewAvailable: Boolean(videoUrl),
+      recentEvents: diagnostics,
+      browser: navigator.userAgent,
+      note: 'This report excludes API keys and does not include uploaded character image data.'
+    };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'animate-text-studio-diagnostics.json';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 10000);
+  }
 
   async function addCharacter(file?: File) {
     if (!file) return;
@@ -130,9 +208,12 @@ export default function App() {
       const generatedUrl = findVideo(result?.data?.[0] ?? result?.data);
       if (!generatedUrl) throw new Error('WAN 2.2 returned a response, but AnimateText Studio could not find the video link. The Space may have changed its output format.');
       setVideoUrl(generatedUrl);
+      setLastError('');
       setStatus('Video generated. Play it below and save it soon—the hosted file link may be temporary.');
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Unknown error.';
+      setLastError(detail);
+      setDiagnostics((current) => [...current, { time: new Date().toISOString(), message: 'WAN generation: ' + detail }].slice(-20));
       const lower = detail.toLowerCase();
       if (lower.includes('quota') || lower.includes('zero gpu') || lower.includes('daily') || lower.includes('rate limit')) {
         setStatus('WAN 2.2 free GPU quota or rate limit reached. Your prompt and character are safe; wait for the allowance to reset before trying again. Details: ' + detail);
@@ -203,7 +284,7 @@ export default function App() {
           <textarea id="motion-prompt" value={prompt} onChange={(event) => setPrompt(event.target.value)} maxLength={1200} placeholder="Describe how your character should move…" />
           <p className="wan-help">Tip: describe the action, facial expression, camera movement, and background. Keep the prompt focused on one simple action for the best chance of a clean short clip.</p>
           <button className="wan-generate" onClick={() => void generateVideo()} disabled={busy || !selectedId || !prompt.trim()}>
-            {busy ? <><LoaderCircle className="wan-spin" size={18} /> Generating with WAN 2.2…</> : <><WandSparkles size={18} /> Generate 5-second video</>}
+            {busy ? <><LoaderCircle className="wan-spin" size={18} /> Generating with WAN 2.2…</> : <><WandSparkles size={18} /> Generate 3.5-second video</>}
           </button>
           <p className="wan-status" aria-live="polite">{status}</p>
           <p className="wan-quota-note">WAN 2.2 uses a shared free GPU allowance. Each generation can use quota, so avoid repeated tests when the service reports a limit.</p>
@@ -226,6 +307,27 @@ export default function App() {
           )}
         </section>
       </main>
+
+      <section className="wan-panel wan-assistant-panel">
+        <div className="wan-assistant-heading">
+          <div><h2><MessageCircle size={19} /> 4. Studio assistant</h2><p className="wan-help">Get help with Sunny and Bloop, scene ideas, movement prompts, and the latest app error.</p></div>
+          <button className="wan-diagnostics" onClick={downloadDiagnostics} title="Download a report you can share when troubleshooting"><Bug size={16} /> Export diagnostics</button>
+        </div>
+        <div className="wan-chat-log" aria-live="polite">
+          {assistantMessages.map((message, index) => <div key={index} className={'wan-chat-message ' + (message.role === 'user' ? 'wan-chat-user' : 'wan-chat-model')}><strong>{message.role === 'user' ? 'You' : 'Studio assistant'}</strong><p>{message.text}</p></div>)}
+          {assistantBusy && <div className="wan-chat-message wan-chat-model"><strong>Studio assistant</strong><p><LoaderCircle className="wan-spin" size={14} /> Thinking…</p></div>}
+        </div>
+        <form className="wan-chat-form" onSubmit={(event) => { event.preventDefault(); void sendAssistantMessage(); }}>
+          <textarea aria-label="Message the studio assistant" value={assistantInput} onChange={(event) => setAssistantInput(event.target.value)} maxLength={2000} rows={2} placeholder="Ask for a Sunny and Bloop scene, a better animation prompt, or help with an error…" />
+          <button className="wan-send" type="submit" disabled={assistantBusy || !assistantInput.trim()}><Send size={17} /> Send</button>
+        </form>
+        <div className="wan-quick-actions">
+          <button onClick={() => void sendAssistantMessage('Help me plan a short, funny Sunny and Bloop episode with three scenes and simple actions that WAN 2.2 can animate.')}>Plan a Sunny &amp; Bloop episode</button>
+          <button onClick={() => void sendAssistantMessage('Improve my current movement prompt for a clear, smooth character animation. Keep it simple and preserve the character design.')}>Improve movement prompt</button>
+          <button disabled={!lastError || assistantBusy} onClick={() => void sendAssistantMessage('Please diagnose this latest app error and give me the safest next steps: ' + lastError)}>Diagnose latest error</button>
+        </div>
+        <p className="wan-quota-note">The assistant uses a Gemini API key stored on the server. If it is not configured yet, it will explain the setup. Free-tier limits apply; do not share passwords or API keys in chat.</p>
+      </section>
       <footer className="wan-footer">Built around the original public WAN 2.2 Fast Space. AnimateText Studio does not add paid video providers or install AI models on your laptop.</footer>
     </div>
   );
