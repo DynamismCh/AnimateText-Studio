@@ -195,7 +195,7 @@ export default function App() {
       });
 
       setStatus('WAN 2.2 is processing your request. Please wait and avoid refreshing the page.');
-      const result: { data?: any[] } = await client.predict('/generate_video', {
+      const result: any = await client.predict('/generate_video', {
         input_image: handle_file(imageFile),
         prompt: prompt.trim().slice(0, 1200),
         steps: 6,
