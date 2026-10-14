@@ -1,7 +1,27 @@
 import { useEffect, useRef, useState } from 'react';
-import { AudioLines, Download, LoaderCircle, Music2, Play, Upload } from 'lucide-react';
+import { AudioLines, Download, LoaderCircle, Music2, Play, Upload, MessageCircle } from 'lucide-react';
 
 const STARTER_SCRIPT = 'Sunny: Hi, Bloop! Are you ready for an adventure?\nBloop: I think so! Is there going to be snacks?\nSunny: Maybe. Let’s find out together!';
+const LIPSYNC_SPACE = 'henrybit/musetalk-1-5';
+const LIPSYNC_SPACE_URL = 'https://huggingface.co/spaces/henrybit/musetalk-1-5';
+
+function findLipSyncVideo(value: any): string {
+  if (!value) return '';
+  if (typeof value === 'string') {
+    if (/^https?:\/\//i.test(value)) return value;
+    if (value.startsWith('/file=') || value.startsWith('/gradio_api/file=')) return 'https://henrybit-musetalk-1-5.hf.space' + value;
+    return '';
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) { const found = findLipSyncVideo(item); if (found) return found; }
+    return '';
+  }
+  if (typeof value === 'object') {
+    if (typeof value.url === 'string' && value.url) return value.url.startsWith('/') ? 'https://henrybit-musetalk-1-5.hf.space' + value.url : value.url;
+    for (const key of ['video', 'output', 'data', 'value', 'files', 'path']) if (key in value) { const found = findLipSyncVideo(value[key]); if (found) return found; }
+  }
+  return '';
+}
 
 function base64ToBlob(base64: string, type: string) {
   const binary = atob(base64);
@@ -25,6 +45,17 @@ export default function AudioWorkshop({ videoUrl = '' }: { videoUrl?: string }) 
   const [effectsName, setEffectsName] = useState('');
   const [uploadedVideoUrl, setUploadedVideoUrl] = useState('');
   const [uploadedVideoName, setUploadedVideoName] = useState('');
+  const [uploadedVideoFile, setUploadedVideoFile] = useState<File | null>(null);
+  const [sunnyLine, setSunnyLine] = useState('Hi, Bloop! Are you ready for an adventure?');
+  const [bloopLine, setBloopLine] = useState('I think so! Is there going to be snacks?');
+  const [sunnyLineAudioUrl, setSunnyLineAudioUrl] = useState('');
+  const [bloopLineAudioUrl, setBloopLineAudioUrl] = useState('');
+  const [speakerBusy, setSpeakerBusy] = useState<'Sunny' | 'Bloop' | ''>('');
+  const [lipSyncSpeaker, setLipSyncSpeaker] = useState<'Sunny' | 'Bloop'>('Sunny');
+  const [lipSyncBusy, setLipSyncBusy] = useState(false);
+  const [lipSyncStatus, setLipSyncStatus] = useState('Choose a saved video with one character visible, then generate that character’s line.');
+  const [lipSyncVideoUrl, setLipSyncVideoUrl] = useState('');
+  const [lipSyncDownloadBusy, setLipSyncDownloadBusy] = useState(false);
   const [mixBusy, setMixBusy] = useState(false);
   const [mixedUrl, setMixedUrl] = useState('');
   const [mixStatus, setMixStatus] = useState('Generate a video and voice track, then combine them here.');
@@ -33,10 +64,13 @@ export default function AudioWorkshop({ videoUrl = '' }: { videoUrl?: string }) 
   const musicUrlRef = useRef('');
   const effectsUrlRef = useRef('');
   const uploadedVideoUrlRef = useRef('');
+  const sunnyLineAudioUrlRef = useRef('');
+  const bloopLineAudioUrlRef = useRef('');
+  const lipSyncVideoUrlRef = useRef('');
   const sourceVideoUrl = uploadedVideoUrl || videoUrl;
 
   useEffect(() => () => {
-    [audioUrlRef.current, musicUrlRef.current, effectsUrlRef.current, uploadedVideoUrlRef.current, mixedUrlRef.current].forEach((url) => { if (url) URL.revokeObjectURL(url); });
+    [audioUrlRef.current, musicUrlRef.current, effectsUrlRef.current, uploadedVideoUrlRef.current, sunnyLineAudioUrlRef.current, bloopLineAudioUrlRef.current, lipSyncVideoUrlRef.current, mixedUrlRef.current].forEach((url) => { if (url) URL.revokeObjectURL(url); });
   }, []);
 
   function replaceLocalAudio(file: File, kind: 'music' | 'effects') {
@@ -61,8 +95,89 @@ export default function AudioWorkshop({ videoUrl = '' }: { videoUrl?: string }) 
     uploadedVideoUrlRef.current = url;
     setUploadedVideoUrl(url);
     setUploadedVideoName(file.name);
+    setUploadedVideoFile(file);
+    setLipSyncVideoUrl('');
+    setLipSyncStatus('Video selected. Generate a voice line for Sunny or Bloop, then run lip-sync.');
     setMixedUrl('');
     setMixStatus('Your existing video is ready. Add dialogue/music/effects and export it below.');
+  }
+
+  async function generateSpeakerVoice(speaker: 'Sunny' | 'Bloop') {
+    const line = (speaker === 'Sunny' ? sunnyLine : bloopLine).trim();
+    if (!line) { setLipSyncStatus('Enter a short line for ' + speaker + ' first.'); return; }
+    setSpeakerBusy(speaker);
+    setLipSyncStatus('Generating a separate ' + speaker + ' voice clip…');
+    try {
+      const response = await fetch('/api/voice', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ script: line, speaker, sunnyVoice, bloopVoice, style })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || 'Could not generate the speaker voice.');
+      if (typeof data.audioBase64 !== 'string') throw new Error('The speech service returned no audio file.');
+      const blob = base64ToBlob(data.audioBase64, data.mimeType || 'audio/wav');
+      if (!blob.size) throw new Error('The generated voice clip was empty.');
+      const url = URL.createObjectURL(blob);
+      if (speaker === 'Sunny') {
+        if (sunnyLineAudioUrlRef.current) URL.revokeObjectURL(sunnyLineAudioUrlRef.current);
+        sunnyLineAudioUrlRef.current = url; setSunnyLineAudioUrl(url);
+      } else {
+        if (bloopLineAudioUrlRef.current) URL.revokeObjectURL(bloopLineAudioUrlRef.current);
+        bloopLineAudioUrlRef.current = url; setBloopLineAudioUrl(url);
+      }
+      setLipSyncSpeaker(speaker);
+      setLipSyncStatus(speaker + ' voice clip is ready. Use a video showing ' + speaker + ' alone or clearly in front for best results.');
+    } catch (error) {
+      setLipSyncStatus(error instanceof Error ? error.message : 'Could not generate the speaker voice.');
+    } finally { setSpeakerBusy(''); }
+  }
+
+  async function runLipSync() {
+    const audioUrl = lipSyncSpeaker === 'Sunny' ? sunnyLineAudioUrl : bloopLineAudioUrl;
+    if (!uploadedVideoFile) { setLipSyncStatus('Choose a video file from your computer first.'); return; }
+    if (!audioUrl) { setLipSyncStatus('Generate the selected character’s separate voice clip first.'); return; }
+    setLipSyncBusy(true); setLipSyncStatus('Connecting to the free MuseTalk lip-sync demo. It may take several minutes and uses its own shared GPU allowance…');
+    try {
+      const audioBlob = await (await fetch(audioUrl)).blob();
+      const audioFile = new File([audioBlob], lipSyncSpeaker.toLowerCase() + '-dialogue.wav', { type: 'audio/wav' });
+      const { Client, handle_file } = await import('@gradio/client');
+      const client = await Client.connect(LIPSYNC_SPACE);
+      const result: any = await client.predict('/generate', {
+        audio: handle_file(audioFile),
+        video: handle_file(uploadedVideoFile),
+        bbox_shift: 0,
+        extra_margin: 10,
+        parsing_mode: 'jaw',
+        left_cheek_width: 90,
+        right_cheek_width: 90
+      });
+      const outputUrl = findLipSyncVideo(result?.data?.[0] ?? result?.data);
+      if (!outputUrl) throw new Error('MuseTalk returned a response, but no output video link was found. Open the demo directly to check whether its API has changed.');
+      if (lipSyncVideoUrlRef.current) URL.revokeObjectURL(lipSyncVideoUrlRef.current);
+      lipSyncVideoUrlRef.current = outputUrl.startsWith('blob:') ? outputUrl : '';
+      setLipSyncVideoUrl(outputUrl);
+      setLipSyncStatus('MuseTalk returned a lip-synced clip for ' + lipSyncSpeaker + '. Please preview it carefully; stylized cartoon faces may not be detected correctly.');
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Unknown lip-sync error.';
+      setLipSyncStatus('Lip-sync did not finish: ' + detail + ' You can also open the MuseTalk demo and upload the same video and WAV file there.');
+    } finally { setLipSyncBusy(false); }
+  }
+
+  async function downloadLipSyncVideo() {
+    if (!lipSyncVideoUrl) return;
+    setLipSyncDownloadBusy(true);
+    try {
+      const response = await fetch(lipSyncVideoUrl);
+      if (!response.ok) throw new Error('The hosted result could not be downloaded directly.');
+      const blob = await response.blob();
+      if (!blob.size) throw new Error('The downloaded result was empty.');
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a'); link.href = url; link.download = 'sunny-bloop-lip-synced.mp4';
+      document.body.appendChild(link); link.click(); link.remove(); window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch {
+      window.open(lipSyncVideoUrl, '_blank', 'noopener,noreferrer');
+      setLipSyncStatus('Opened the hosted result in a new tab because direct download was blocked. Use the player’s download option or Save video as.');
+    } finally { setLipSyncDownloadBusy(false); }
   }
 
   async function generateSpeech() {
@@ -224,6 +339,25 @@ export default function AudioWorkshop({ videoUrl = '' }: { videoUrl?: string }) 
       <button className="wan-generate" onClick={() => void createFinishedVideo()} disabled={mixBusy || !sourceVideoUrl || (!audioUrl && !musicUrl && !effectsUrl)}>{mixBusy ? <><LoaderCircle className="wan-spin" size={18} /> Exporting finished video…</> : <><Music2 size={18} /> Mix audio and export video</>}</button>
       <p className="wan-status" aria-live="polite">{mixStatus}</p>
       {mixedUrl && <div className="wan-audio-result"><strong>Finished video with audio</strong><video controls playsInline preload="metadata" src={mixedUrl} /><button className="wan-download" onClick={downloadMixedVideo}><Download size={17} /> Download finished WebM video</button></div>}
+    </div>
+    <div className="wan-audio-mixer wan-lipsync-panel">
+      <h3><MessageCircle size={16} /> Character lip-sync — Sunny &amp; Bloop</h3>
+      <p className="wan-help">This experimental step uses MuseTalk to animate a character’s mouth from a separate voice clip. Use a short video where only the intended speaker’s face is clear. It may struggle with some cartoon designs, and the free demo has its own shared GPU limits.</p>
+      <label className="wan-label" htmlFor="sunny-lipsync-line">Sunny’s line</label>
+      <textarea id="sunny-lipsync-line" className="wan-audio-script" value={sunnyLine} onChange={(event) => setSunnyLine(event.target.value)} maxLength={700} placeholder="Write Sunny's line…" />
+      <button className="wan-download" onClick={() => void generateSpeakerVoice('Sunny')} disabled={Boolean(speakerBusy) || !sunnyLine.trim()}>{speakerBusy === 'Sunny' ? <LoaderCircle className="wan-spin" size={17} /> : <AudioLines size={17} />} Generate Sunny voice</button>
+      {sunnyLineAudioUrl && <audio controls src={sunnyLineAudioUrl} />}
+      <label className="wan-label" htmlFor="bloop-lipsync-line">Bloop’s line</label>
+      <textarea id="bloop-lipsync-line" className="wan-audio-script" value={bloopLine} onChange={(event) => setBloopLine(event.target.value)} maxLength={700} placeholder="Write Bloop's line…" />
+      <button className="wan-download" onClick={() => void generateSpeakerVoice('Bloop')} disabled={Boolean(speakerBusy) || !bloopLine.trim()}>{speakerBusy === 'Bloop' ? <LoaderCircle className="wan-spin" size={17} /> : <AudioLines size={17} />} Generate Bloop voice</button>
+      {bloopLineAudioUrl && <audio controls src={bloopLineAudioUrl} />}
+      <label className="wan-label" htmlFor="lipsync-speaker">Which character is speaking in this video?</label>
+      <select id="lipsync-speaker" value={lipSyncSpeaker} onChange={(event) => setLipSyncSpeaker(event.target.value as 'Sunny' | 'Bloop')}><option value="Sunny">Sunny</option><option value="Bloop">Bloop</option></select>
+      <p className="wan-help">The video selected in this section’s exporter is used as the source. Choose a local MP4/WebM/MOV file there first. For the most reliable test, use a clip showing only Sunny when syncing Sunny, and only Bloop when syncing Bloop.</p>
+      <button className="wan-generate" onClick={() => void runLipSync()} disabled={lipSyncBusy || !uploadedVideoFile || !(lipSyncSpeaker === 'Sunny' ? sunnyLineAudioUrl : bloopLineAudioUrl)}>{lipSyncBusy ? <><LoaderCircle className="wan-spin" size={18} /> Lip-syncing…</> : <><MessageCircle size={18} /> Sync mouth to {lipSyncSpeaker}’s voice</>}</button>
+      <p className="wan-status" aria-live="polite">{lipSyncStatus}</p>
+      {lipSyncVideoUrl && <div className="wan-audio-result"><strong>Lip-synced result</strong><video controls playsInline preload="metadata" src={lipSyncVideoUrl} /><button className="wan-download" onClick={() => void downloadLipSyncVideo()} disabled={lipSyncDownloadBusy}>{lipSyncDownloadBusy ? <LoaderCircle className="wan-spin" size={17} /> : <Download size={17} />} Download lip-synced video</button></div>}
+      <a className="wan-open-link" href={LIPSYNC_SPACE_URL} target="_blank" rel="noreferrer">Open MuseTalk demo directly ↗</a>
     </div>
     <p className="wan-quota-note">The browser combines the generated video with your dialogue, music and effects locally; no extra paid video service is used. The current WAN clip is about 3.5 seconds long, so dialogue may be cut short if it is too long. Use audio you own or have permission to use.</p>
   </section>;
