@@ -57,3 +57,23 @@ button:disabled{cursor:not-allowed;opacity:.55}
 @keyframes wan-spin{to{transform:rotate(360deg)}}
 @media(max-width:850px){.wan-app{padding:16px}.wan-layout{grid-template-columns:1fr}.wan-output-panel{min-height:360px}.wan-video-empty{min-height:320px}.wan-header{align-items:flex-start}.wan-header>a{max-width:120px;text-align:right;line-height:1.5}}
 @media(max-width:480px){.wan-brand h1{font-size:18px}.wan-logo{width:42px;height:42px}.wan-panel{padding:16px}.wan-header>a{font-size:11px}}
+
+.wan-assistant-panel{margin-top:22px}
+.wan-assistant-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
+.wan-assistant-heading h2{margin-bottom:4px}
+.wan-assistant-heading .wan-help{margin-top:5px}
+.wan-diagnostics,.wan-quick-actions button{display:inline-flex;align-items:center;justify-content:center;gap:7px;border:1px solid #37415d;border-radius:10px;background:#10182a;color:#cbd5e1;padding:9px 12px;font-size:12px;font-weight:600}
+.wan-diagnostics:hover,.wan-quick-actions button:hover{border-color:#8b7cf6;color:#ede9fe}
+.wan-chat-log{display:flex;flex-direction:column;gap:10px;max-height:390px;overflow-y:auto;padding:14px;margin:8px 0 12px;border:1px solid #263149;border-radius:13px;background:#080e1b}
+.wan-chat-message{max-width:88%;padding:11px 13px;border-radius:12px;font-size:13px;line-height:1.65;overflow-wrap:anywhere}
+.wan-chat-message strong{display:block;margin-bottom:4px;font-size:11px;color:#c4b5fd}
+.wan-chat-message p{white-space:pre-wrap;margin:0}
+.wan-chat-model{align-self:flex-start;background:#141b2c;color:#e2e8f0;border:1px solid #29344b}
+.wan-chat-user{align-self:flex-end;background:#28245b;color:#f5f3ff;border:1px solid #4d458e}
+.wan-chat-user strong{color:#ddd6fe}
+.wan-chat-form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:stretch}
+.wan-chat-form textarea{min-height:72px;max-height:180px;resize:vertical}
+.wan-send{display:flex;align-items:center;justify-content:center;gap:8px;align-self:stretch;padding:0 18px;border:0;border-radius:12px;background:linear-gradient(110deg,#6d5ae8,#8b5cf6);color:white;font-size:13px;font-weight:700}
+.wan-quick-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.wan-quick-actions button{font-weight:500}
+@media(max-width:600px){.wan-assistant-heading{flex-direction:column}.wan-chat-form{grid-template-columns:1fr}.wan-send{padding:12px}.wan-chat-message{max-width:96%}.wan-quick-actions button{flex:1 1 100%}}
