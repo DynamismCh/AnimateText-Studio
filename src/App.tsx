@@ -242,86 +242,41 @@ function App(){
   const character=characters.find(item=>selected.includes(item.id));
   if(!character){setFastMotionNote('Select a character in Cast first.');return}
   setFastMotionBusy(true);
-  setFastMotionNote('Connecting to the public Wan 2.2 Fast Space. This uses its free shared GPU quota, so requests may queue or be limited.');
-  let stage='loading the Gradio client';
-  const spaceUrl='https://zerogpu-aoti-wan2-2-fp8da-aoti-faster.hf.space';
+  setAiMotionResult('');
+  setFastMotionNote('Preparing your character image and connecting through the app server. The public Space may queue or limit free requests.');
   try{
-   let clientModule:any;
-   try{
-    clientModule=await import(/* @vite-ignore */ 'https://esm.sh/@gradio/client@1.15.0?bundle');
-   }catch{
-    clientModule=await import(/* @vite-ignore */ 'https://cdn.jsdelivr.net/npm/@gradio/client@1.15.0/+esm');
-   }
-   const {Client,handle_file}:any=clientModule;
-   if(typeof Client?.connect!=='function'||typeof handle_file!=='function')throw new Error('The browser could not load the Gradio client library. Refresh the page and try again.');
-   stage='connecting to Wan 2.2 Fast';
-   const client=await Client.connect('zerogpu-aoti/wan2-2-fp8da-aoti-faster',{timeout:60000});
-   stage='reading the model input fields';
-   const apiInfo=await client.view_api();
-   const endpoints=apiInfo?.named_endpoints||{};
-   const endpointKey=Object.keys(endpoints).find(key=>key.replace(/^\//,'').toLowerCase()==='generate_video')||Object.keys(endpoints).find(key=>key.toLowerCase().includes('generate_video'));
-   if(!endpointKey)throw new Error('Wan 2.2 Fast did not expose its expected video-generation endpoint. Open the hosted Space and check whether its interface has changed.');
-   const parameters=endpoints[endpointKey]?.parameters||[];
-   const imageResponse=await fetch(character.url);
-   if(!imageResponse.ok)throw new Error('Could not read the selected character image. Try uploading the character again.');
-   const imageBlob=await imageResponse.blob();
-   const imageFile=new File([imageBlob],(character.name||'character')+'.png',{type:imageBlob.type||'image/png'});
-   const payload:any[]=[];
-   let imageUsed=false;
-   for(const param of parameters){
-    const label=String(param.label||param.parameter_name||param.name||'').toLowerCase();
-    const component=String(param.component||param.type||'').toLowerCase();
-    if((component.includes('image')||label.includes('input image')||label==='image')&&!imageUsed){
-     payload.push(handle_file(imageFile));imageUsed=true;continue;
-    }
-    if(label.includes('prompt')&&!label.includes('negative')){
-     payload.push((motionPrompt.trim()||idea.trim()||'A friendly cartoon character comes alive, walks naturally, turns toward the camera, smiles and waves. Keep the character design consistent.').slice(0,1200));continue;
-    }
-    if(label.includes('negative')){payload.push(param.parameter_default??param.default??'blurry, distorted body, extra limbs, flicker, text, watermark');continue}
-    if(label.includes('duration')){payload.push(2.5);continue}
-    if(label.includes('steps')||label.includes('inference')){payload.push(4);continue}
-    if(label.includes('randomize')){payload.push(true);continue}
-    if(label.includes('seed')){payload.push(42);continue}
-    if(label.includes('guidance')){payload.push(param.parameter_default??param.default??1);continue}
-    if(param.parameter_default!==undefined&&param.parameter_default!==null){payload.push(param.parameter_default);continue}
-    if(param.default!==undefined&&param.default!==null){payload.push(param.default);continue}
-    if(component.includes('checkbox')){payload.push(false);continue}
-    if(component.includes('slider')||component.includes('number')){payload.push(1);continue}
-    if(component.includes('textbox')){payload.push('');continue}
-    payload.push(null);
-   }
-   if(!imageUsed)throw new Error('The Space API did not expose an image input, so I stopped before using GPU time.');
-   stage='generating the short clip on the shared GPU';
-   setFastMotionNote('Your character image and motion prompt have been sent. Wan 2.2 Fast is generating a short clip; keep this tab open.');
-   const result=await client.predict(endpointKey,payload);
-   const findMedia=(value:any):string=>{
-    if(!value)return '';
-    if(typeof value==='string'){
-     if(/^https?:\/\//i.test(value))return value;
-     if(value.startsWith('/'))return spaceUrl+value;
-     return '';
-    }
-    if(Array.isArray(value)){for(const item of value){const found=findMedia(item);if(found)return found}return ''}
-    if(typeof value==='object'){
-     for(const key of ['url','path']){
-      const candidate=typeof value[key]==='string'?value[key]:'';
-      if(candidate&&(/^https?:\/\//i.test(candidate)||candidate.startsWith('/')))return candidate.startsWith('/')?spaceUrl+candidate:candidate;
-     }
-     for(const key of ['video','output','data','value','files'])if(key in value){const found=findMedia(value[key]);if(found)return found}
-    }
-    return '';
-   };
-   const mediaUrl=findMedia(result?.data);
-   if(!mediaUrl)throw new Error('The Space returned a response but no video URL could be detected. Open Wan 2.2 Fast directly to check its current output format.');
-   setAiMotionResult(mediaUrl);setShowAiMotionOnStage(true);
-   setFastMotionNote('Wan 2.2 Fast returned a video. Preview it below or use the download link. Free GPU availability and daily quotas can change.');
+   const source=await fetch(character.url);
+   if(!source.ok)throw new Error('Could not read the selected character image. Try uploading it again.');
+   const bitmap=await createImageBitmap(await source.blob());
+   const maxSide=832;
+   const scale=Math.min(1,maxSide/Math.max(bitmap.width,bitmap.height));
+   const canvas=document.createElement('canvas');
+   canvas.width=Math.max(1,Math.round(bitmap.width*scale));
+   canvas.height=Math.max(1,Math.round(bitmap.height*scale));
+   const ctx=canvas.getContext('2d');
+   if(!ctx)throw new Error('Could not prepare the character image in this browser.');
+   ctx.drawImage(bitmap,0,0,canvas.width,canvas.height);
+   bitmap.close();
+   const imageBase64=canvas.toDataURL('image/jpeg',0.86).split(',')[1];
+   setFastMotionNote('Sending the image through AnimateText Studio to Wan 2.2 Fast. Please keep this tab open.');
+   const response=await fetch('/api/wan-fast',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+     imageBase64,
+     prompt:(motionPrompt.trim()||idea.trim()||'A friendly cartoon character comes alive, walks naturally, turns toward the camera, smiles and waves. Keep the character design consistent.').slice(0,1200)
+    })
+   });
+   const result=await response.json().catch(()=>({}));
+   if(!response.ok)throw new Error(result.error||result.detail||'The Wan 2.2 Fast server connection failed.');
+   if(!result.videoUrl)throw new Error('The Space finished without returning a usable video link.');
+   setAiMotionResult(result.videoUrl);
+   setShowAiMotionOnStage(true);
+   setFastMotionNote('Wan 2.2 Fast returned a video. Preview it below or open the download link.');
    setMessage('Wan 2.2 Fast generated a character-motion clip.');
   }catch(error){
    const detail=error instanceof Error?error.message:'Unknown connection or model error.';
-   const network=/failed to fetch|networkerror|load failed|fetch/i.test(detail)
-    ? ' The browser could not reach the Space API; this may be a cross-origin restriction. You can still open the hosted Space directly.'
-    : ' If the free GPU quota is exhausted or the queue is busy, retry later on the hosted Space.';
-   setFastMotionNote('Failed while '+stage+': '+detail+network);
+   setFastMotionNote(detail+' If the Space is busy or its free GPU allowance is exhausted, try again later.');
   }finally{setFastMotionBusy(false)}
  }
 
