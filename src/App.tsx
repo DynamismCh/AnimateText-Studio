@@ -309,7 +309,7 @@ export default function App() {
         </section>
       </main>
 
-      <AudioWorkshop />
+      <AudioWorkshop videoUrl={videoUrl} />
 
       <section className="wan-panel wan-assistant-panel">
         <div className="wan-assistant-heading">
