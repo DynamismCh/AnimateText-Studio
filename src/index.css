@@ -16,3 +16,11 @@ body{margin:0;font-family:Inter,ui-sans-serif,system-ui,sans-serif}*{box-sizing:
 .motion-steps b{color:#c4b5fd;min-width:14px}
 .ai-motion-link{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;border:1px solid rgba(167,139,250,.5);border-radius:10px;padding:10px 12px;color:#ddd6fe;font-size:12px;font-weight:600;text-decoration:none}
 .ai-motion-link:hover{background:rgba(139,92,246,.16)}
+
+.motion-loading{display:flex;align-items:center;gap:10px;margin-top:12px;padding:10px 12px;border:1px solid rgba(167,139,250,.3);border-radius:10px;background:rgba(124,58,237,.1);font-size:12px;color:#ddd6fe}
+.motion-spinner{width:16px;height:16px;border:2px solid rgba(221,214,254,.3);border-top-color:#c4b5fd;border-radius:50%;animation:motion-spin .8s linear infinite;flex:0 0 auto}
+@keyframes motion-spin{to{transform:rotate(360deg)}}
+.ai-result{padding:10px;border:1px solid rgba(167,139,250,.25);border-radius:12px;background:rgba(15,23,42,.7)}
+.ai-result video{max-height:360px;background:#020617;object-fit:contain}
+.ai-motion-panel input[type=file]{font-size:12px;padding:9px}
+.ai-motion-panel details summary{list-style-position:inside}
