@@ -23,6 +23,8 @@ export default function AudioWorkshop({ videoUrl = '' }: { videoUrl?: string }) 
   const [musicName, setMusicName] = useState('');
   const [effectsUrl, setEffectsUrl] = useState('');
   const [effectsName, setEffectsName] = useState('');
+  const [uploadedVideoUrl, setUploadedVideoUrl] = useState('');
+  const [uploadedVideoName, setUploadedVideoName] = useState('');
   const [mixBusy, setMixBusy] = useState(false);
   const [mixedUrl, setMixedUrl] = useState('');
   const [mixStatus, setMixStatus] = useState('Generate a video and voice track, then combine them here.');
@@ -30,9 +32,11 @@ export default function AudioWorkshop({ videoUrl = '' }: { videoUrl?: string }) 
   const audioUrlRef = useRef('');
   const musicUrlRef = useRef('');
   const effectsUrlRef = useRef('');
+  const uploadedVideoUrlRef = useRef('');
+  const sourceVideoUrl = uploadedVideoUrl || videoUrl;
 
   useEffect(() => () => {
-    [audioUrlRef.current, musicUrlRef.current, effectsUrlRef.current, mixedUrlRef.current].forEach((url) => { if (url) URL.revokeObjectURL(url); });
+    [audioUrlRef.current, musicUrlRef.current, effectsUrlRef.current, uploadedVideoUrlRef.current, mixedUrlRef.current].forEach((url) => { if (url) URL.revokeObjectURL(url); });
   }, []);
 
   function replaceLocalAudio(file: File, kind: 'music' | 'effects') {
@@ -47,6 +51,18 @@ export default function AudioWorkshop({ videoUrl = '' }: { videoUrl?: string }) 
       effectsUrlRef.current = url; setEffectsUrl(url); setEffectsName(file.name);
       setStatus('Sound effects loaded for preview. They are not mixed into the video yet.');
     }
+  }
+
+  function replaceSourceVideo(file?: File) {
+    if (!file) return;
+    if (!file.type.startsWith('video/')) { setMixStatus('Please choose a video file, such as MP4 or WebM.'); return; }
+    const url = URL.createObjectURL(file);
+    if (uploadedVideoUrlRef.current) URL.revokeObjectURL(uploadedVideoUrlRef.current);
+    uploadedVideoUrlRef.current = url;
+    setUploadedVideoUrl(url);
+    setUploadedVideoName(file.name);
+    setMixedUrl('');
+    setMixStatus('Your existing video is ready. Add dialogue/music/effects and export it below.');
   }
 
   async function generateSpeech() {
@@ -78,7 +94,7 @@ export default function AudioWorkshop({ videoUrl = '' }: { videoUrl?: string }) 
   }
 
   async function createFinishedVideo() {
-    if (!videoUrl) { setMixStatus('Generate a WAN video first.'); return; }
+    if (!sourceVideoUrl) { setMixStatus('Generate a WAN video or choose a video from your computer first.'); return; }
     if (!audioUrl && !musicUrl && !effectsUrl) { setMixStatus('Generate character voices or upload music/effects first.'); return; }
     if (typeof MediaRecorder === 'undefined') { setMixStatus('Your browser does not support in-browser video export. Please try a recent version of Chrome or Edge.'); return; }
     setMixBusy(true); setMixStatus('Preparing video and audio tracks…');
@@ -93,7 +109,7 @@ export default function AudioWorkshop({ videoUrl = '' }: { videoUrl?: string }) 
       videoElement.playsInline = true;
       videoElement.preload = 'auto';
       videoElement.muted = true;
-      videoElement.src = videoUrl;
+      videoElement.src = sourceVideoUrl;
       await new Promise<void>((resolve, reject) => {
         videoElement!.onloadedmetadata = () => resolve();
         videoElement!.onerror = () => reject(new Error('Could not load the generated video. Its hosted link may have expired; generate or reopen the clip and try again.'));
@@ -202,8 +218,10 @@ export default function AudioWorkshop({ videoUrl = '' }: { videoUrl?: string }) 
     </div>
     <div className="wan-audio-mixer">
       <h3><Play size={16} /> Finished video exporter</h3>
-      <p className="wan-help">{videoUrl ? 'A WAN clip is available. Combine it with your generated dialogue and any uploaded music/effects.' : 'Generate a WAN clip in section 3 first. Then return here to add audio and export one video.'}</p>
-      <button className="wan-generate" onClick={() => void createFinishedVideo()} disabled={mixBusy || !videoUrl || (!audioUrl && !musicUrl && !effectsUrl)}>{mixBusy ? <><LoaderCircle className="wan-spin" size={18} /> Exporting finished video…</> : <><Music2 size={18} /> Mix audio and export video</>}</button>
+      <p className="wan-help">Use the generated WAN clip above, or load a video you already saved on your computer. This lets you test export without spending more video-generation quota.</p>
+      <label className="wan-upload"><Upload size={16} /> {uploadedVideoName ? 'Choose a different video' : 'Use a video from your computer'}<input type="file" accept="video/*,.mp4,.webm,.mov" onChange={(event) => { replaceSourceVideo(event.target.files?.[0]); event.currentTarget.value = ''; }} /></label>
+      {uploadedVideoUrl && <div className="wan-audio-result"><strong>Selected video: {uploadedVideoName}</strong><video controls playsInline preload="metadata" src={uploadedVideoUrl} /></div>}
+      <button className="wan-generate" onClick={() => void createFinishedVideo()} disabled={mixBusy || !sourceVideoUrl || (!audioUrl && !musicUrl && !effectsUrl)}>{mixBusy ? <><LoaderCircle className="wan-spin" size={18} /> Exporting finished video…</> : <><Music2 size={18} /> Mix audio and export video</>}</button>
       <p className="wan-status" aria-live="polite">{mixStatus}</p>
       {mixedUrl && <div className="wan-audio-result"><strong>Finished video with audio</strong><video controls playsInline preload="metadata" src={mixedUrl} /><button className="wan-download" onClick={downloadMixedVideo}><Download size={17} /> Download finished WebM video</button></div>}
     </div>
