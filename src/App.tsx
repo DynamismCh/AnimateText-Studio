@@ -53,6 +53,11 @@ function App(){
  const [segmentPreview,setSegmentPreview]=useState('');
  const [segmentBusy,setSegmentBusy]=useState(false);
  const [segmentStatus,setSegmentStatus]=useState('Choose a full scene image, then click directly on the character you want to separate.');
+ const [motionReference,setMotionReference]=useState<File|null>(null);
+ const [motionPrompt,setMotionPrompt]=useState('A friendly character walks naturally, turns toward the camera, smiles, and waves. Keep the character design consistent.');
+ const [aiMotionBusy,setAiMotionBusy]=useState(false);
+ const [aiMotionResult,setAiMotionResult]=useState('');
+ const [aiMotionNote,setAiMotionNote]=useState('Choose a short reference video to animate your selected transparent character.');
  const shot=episode?.shots[shotIndex];
  const totalDuration=useMemo(()=>episode?.shots.reduce((n,s)=>n+s.duration,0)||0,[episode]);
 
@@ -205,6 +210,72 @@ function App(){
    setMessage('Character cutout downloaded. In the AI Motion Studio, upload it as the character image and add a short motion reference video.');
   }catch(error){setMessage(error instanceof Error?error.message:'Could not download this character.')}
  }
+ async function generateAiMotion(){
+  const character=characters.find(item=>selected.includes(item.id));
+  if(!character){setAiMotionNote('Select one character in Cast first.');return}
+  if(!motionReference){setAiMotionNote('Upload a short reference video showing the movement you want.');return}
+  if(motionReference.size>100*1024*1024){setAiMotionNote('Please use a reference video smaller than 100 MB.');return}
+  setAiMotionBusy(true);setAiMotionResult('');setAiMotionNote('Connecting to the hosted AI model. This may take time if the free GPU is busy.');
+  try{
+   const clientModuleUrl='https://cdn.jsdelivr.net/npm/@gradio/client@1.15.0/dist/index.min.js';
+   const {Client,handle_file}:any=await import(/* @vite-ignore */ clientModuleUrl);
+   const client=await Client.connect('hugging-apps/wan2-2-animate-2-14b');
+   const apiInfo=await client.view_api();
+   const endpoints=apiInfo?.named_endpoints||{};
+   const endpointKey=Object.keys(endpoints).find(key=>key.replace(/^\//,'')==='animate')||Object.keys(endpoints).find(key=>key.toLowerCase().includes('animate'));
+   if(!endpointKey)throw new Error('The hosted model did not expose its expected Animate endpoint. Open the hosted studio directly and try again later.');
+   const parameters=endpoints[endpointKey]?.parameters||[];
+   const response=await fetch(character.url);
+   if(!response.ok)throw new Error('Could not load your selected character cutout.');
+   const imageBlob=await response.blob();
+   const imageFile=new File([imageBlob],(character.name||'character')+'.png',{type:imageBlob.type||'image/png'});
+   const payload:any[]=[];
+   let imageUsed=false,videoUsed=false;
+   for(const param of parameters){
+    const label=String(param.label||param.parameter_name||param.name||'').toLowerCase();
+    const component=String(param.component||param.type||'').toLowerCase();
+    if((component.includes('image')||label.includes('character image')||label==='image'||label.includes('reference image'))&&!imageUsed){
+     payload.push(handle_file(imageFile));imageUsed=true;continue;
+    }
+    if((component.includes('video')||label.includes('driving video')||label.includes('reference video')||label==='video')&&!videoUsed){
+     payload.push(handle_file(motionReference));videoUsed=true;continue;
+    }
+    if(label.includes('prompt')||label.includes('description')||label.includes('appearance')){
+     payload.push(motionPrompt.trim()||idea.trim()||'A friendly character moves naturally.');continue;
+    }
+    if(label.includes('seed')){payload.push(42);continue}
+    if(label.includes('background')&&component.includes('text')){payload.push('Keep the original scene consistent.');continue}
+    if(param.parameter_default!==undefined&&param.parameter_default!==null){payload.push(param.parameter_default);continue}
+    if(param.default!==undefined&&param.default!==null){payload.push(param.default);continue}
+    if(component.includes('checkbox')){payload.push(false);continue}
+    if(component.includes('slider')||component.includes('number')){payload.push(0);continue}
+    if(component.includes('dropdown')&&Array.isArray(param.options)&&param.options.length){payload.push(param.options[0]);continue}
+    if(component.includes('textbox')){payload.push('');continue}
+    payload.push(null);
+   }
+   if(!imageUsed||!videoUsed)throw new Error('The hosted model API has changed and no longer exposes the expected character-image and driving-video inputs. Use the Open hosted AI studio link for now.');
+   setAiMotionNote('Sending your cutout and reference clip to the hosted GPU. Free generations can take several minutes or fail when the queue is busy.');
+   const result=await client.predict(endpointKey,payload);
+   const findMedia=(value:any):string=>{
+    if(!value)return '';
+    if(typeof value==='string')return /^https?:\/\//i.test(value)?value:'';
+    if(Array.isArray(value)){for(const item of value){const found=findMedia(item);if(found)return found}return ''}
+    if(typeof value==='object'){
+     const url=typeof value.url==='string'?value.url:'';
+     const path=typeof value.path==='string'?value.path:'';
+     const candidate=url||path;
+     if(candidate&&(/^https?:\/\//i.test(candidate)||candidate.startsWith('/file=')))return candidate.startsWith('/file=')?'https://hugging-apps-wan2-2-animate-2-14b.hf.space'+candidate:candidate;
+     for(const key of ['video','output','data','value','files'])if(key in value){const found=findMedia(value[key]);if(found)return found}
+    }
+    return '';
+   };
+   const mediaUrl=findMedia(result?.data);
+   if(!mediaUrl)throw new Error('The model returned a response, but no downloadable video URL could be detected. Try the hosted studio directly; its output format may have changed.');
+   setAiMotionResult(mediaUrl);setAiMotionNote('AI motion generation finished. Preview the result below and download it if you like it.');
+  }catch(error){
+   setAiMotionNote(error instanceof Error?error.message+' If the free GPU is sleeping, busy, or rate-limited, open the hosted studio and retry there.':'AI motion generation failed. Please try again or use the hosted studio link.');
+  }finally{setAiMotionBusy(false)}
+ }
  async function removeCharacter(id:string){
   const character=characters.find(c=>c.id===id);
   try{await deleteSavedCharacter(id)}catch{}
@@ -291,7 +362,7 @@ function App(){
     <section className="panel"><h2 className="section-title"><Clapperboard size={17}/> Series & episode</h2><label className="label">Series name</label><input className="input mb-2" value={seriesTitle} onChange={e=>setSeriesTitle(e.target.value)}/><label className="label">Episode name</label><input className="input" value={episodeTitle} onChange={e=>setEpisodeTitle(e.target.value)}/></section>
     <section className="panel"><h2 className="section-title"><Wand2 size={17}/> Story</h2><textarea className="input h-32" value={idea} onChange={e=>setIdea(e.target.value)} placeholder="Describe the children's story..."/><button className="primary w-full mt-3" onClick={createEpisode} disabled={busy}><Sparkles size={17}/>{busy?'Directing episode...':'Make animated episode'}</button><p className="hint mt-2">The director creates 4 scenes and choreographs each selected character independently.</p></section>
     <section className="panel"><h2 className="section-title"><Users size={17}/> Cast</h2><p className="hint">Select up to 3 characters. For a scene image that already contains the background, separate each character before animating.</p><label className="icon-btn cursor-pointer mt-3" title="Upload a scene image and separate a character"><Plus size={18}/><span className="text-xs ml-2">Separate character from scene</span><input type="file" accept="image/*" className="hidden" onChange={e=>{const f=e.target.files?.[0];if(f)beginSceneCutout(f);e.currentTarget.value=''}}/></label>{segmentPreview&&<div className="cutout-tool mt-3"><p className="hint mb-2">{segmentStatus}</p><p className="text-xs text-violet-200 mb-2">Click on the character in the image below. The image is processed in your browser; no upload to a separate AI service is needed.</p><img className={'cutout-source '+(segmentBusy?'busy':'')} src={segmentPreview} alt="Click the character you want to separate" onClick={cutOutCharacter}/><div className="flex gap-2 mt-2"><button className="control" onClick={()=>{if(segmentPreview.startsWith('blob:'))URL.revokeObjectURL(segmentPreview);setSegmentPreview('');setSegmentFile(null);setSegmentStatus('Choose a full scene image, then click directly on the character you want to separate.')}}>Cancel</button>{segmentBusy&&<span className="hint self-center">Working…</span>}</div></div>}<div className="space-y-2 mt-3">{characters.map(c=><div key={c.id} className={'character-card '+(selected.includes(c.id)?'selected':'')} onClick={()=>setSelected(p=>p.includes(c.id)?p.filter(x=>x!==c.id):p.length<3?[...p,c.id]:p)}><img src={resolveMediaUrl(c.url)} alt={c.name}/><span>{c.name}</span><span className="text-xs text-slate-500">{selected.includes(c.id)?'Selected':''}</span><button className="ml-auto text-slate-500 hover:text-red-400" onClick={e=>{e.stopPropagation();removeCharacter(c.id)}}><Trash2 size={15}/></button></div>)}{!characters.length&&<div className="empty">No characters yet.</div>}</div><label className="icon-btn cursor-pointer mt-3" title="Upload a character image with a transparent background"><Upload size={16}/><span className="text-xs ml-2">Add ready-made character</span><input type="file" accept="image/*" className="hidden" onChange={e=>e.target.files?.[0]&&addCharacter(e.target.files[0])}/></label></section>
-    <section className="panel ai-motion-panel"><h2 className="section-title"><Sparkles size={17}/> AI Motion Lab <span className="beta-tag">BETA</span></h2><p className="hint">Next step: try real AI-generated movement using a hosted model, without installing it on your laptop.</p><ol className="motion-steps"><li><b>1.</b> Select one character in your Cast above.</li><li><b>2.</b> Download its transparent cutout.</li><li><b>3.</b> Open the hosted AI studio, upload the cutout and a short reference video showing the movement you want.</li></ol><button className="primary w-full mt-3" onClick={downloadCharacterForAi} disabled={!selected.length}><Download size={16}/> Download selected character</button><a className="ai-motion-link mt-2" href="https://huggingface.co/spaces/hugging-apps/wan2-2-animate-2-14b" target="_blank" rel="noreferrer"><Sparkles size={16}/> Open free hosted Wan Animate studio <span aria-hidden="true">↗</span></a><p className="hint mt-2">This hosted service may queue, pause or limit free generations. It currently needs a reference video; the app does not yet send files directly to the model.</p></section>
+    <section className="panel ai-motion-panel"><h2 className="section-title"><Sparkles size={17}/> AI Motion Lab <span className="beta-tag">BETA</span></h2><p className="hint">Generate real AI-driven character movement with a hosted GPU. Nothing heavy is installed on your laptop.</p><label className="label mt-3">Motion reference video</label><input className="input" type="file" accept="video/*" onChange={e=>{setMotionReference(e.target.files?.[0]||null);setAiMotionResult('');setAiMotionNote(e.target.files?.[0]?'Reference clip selected. Select a character above, then generate.':'Choose a short reference clip.')}}/><p className="hint mt-1">Use a short clip showing the movement you want. Keep it small to reduce upload time.</p><label className="label mt-3">Motion instructions</label><textarea className="input h-20" value={motionPrompt} onChange={e=>setMotionPrompt(e.target.value)} placeholder="Describe how the character should move..."/><button className="primary w-full mt-3" onClick={generateAiMotion} disabled={!selected.length||!motionReference||aiMotionBusy}>{aiMotionBusy?'Generating AI motion…':'Generate AI character motion'}</button><p className="hint mt-2">{aiMotionNote}</p>{aiMotionBusy&&<div className="motion-loading"><span className="motion-spinner"/><span>Waiting for the hosted AI GPU. Please keep this tab open.</span></div>}{aiMotionResult&&<div className="ai-result mt-3"><video controls playsInline src={aiMotionResult} className="w-full rounded-lg" /><a className="ai-motion-link mt-2" href={aiMotionResult} target="_blank" rel="noreferrer" download><Download size={16}/> Open or download generated motion</a></div>}<details className="mt-3"><summary className="hint cursor-pointer">Fallback and troubleshooting</summary><p className="hint mt-2">If the public model is paused, overloaded, or changes its API, try the hosted studio directly. Free GPU access is limited and generation is not guaranteed.</p><button className="control mt-2" onClick={downloadCharacterForAi} disabled={!selected.length}><Download size={16}/> Download selected character cutout</button><a className="ai-motion-link mt-2" href="https://huggingface.co/spaces/hugging-apps/wan2-2-animate-2-14b" target="_blank" rel="noreferrer"><Sparkles size={16}/> Open hosted Wan Animate studio ↗</a></details></section>
     <section className="panel"><h2 className="section-title"><Volume2 size={17}/> Audio</h2><label className="label">Preview voice</label><div className="flex gap-2"><select className="input" value={voiceName} onChange={e=>setVoiceName(e.target.value)}><option value="">Automatic English voice</option>{voices.map(v=><option key={v.name} value={v.name}>{v.name} ({v.lang})</option>)}</select><button className="icon-btn" onClick={previewVoice} disabled={!episode}><Volume2 size={17}/></button></div><div className="audio-toggles"><button className={'audio-toggle '+(musicOn?'on':'')} onClick={()=>setMusicOn(v=>!v)}>{musicOn?<Music/>:<VolumeX/>} Background music</button><button className={'audio-toggle '+(sfxOn?'on':'')} onClick={()=>setSfxOn(v=>!v)}>{sfxOn?<Volume2/>:<VolumeX/>} Sound effects</button></div><p className="hint">Audio is included in exported WebM.</p></section>
     <section className="panel"><h2 className="section-title">Storyboard</h2>{episode?.shots.map((s,i)=><button key={i} onClick={()=>{setShotIndex(i);setPlaying(false);setElapsed(0)}} className={'scene-row '+(i===shotIndex?'active':'')}><span>{i+1}</span><span className="truncate">{s.dialogue||s.text}</span><small>{s.duration}s</small></button>)}{!episode&&<div className="empty">Your episode shots will appear here.</div>}</section>
    </aside>
