@@ -1,4 +1,4 @@
-name: Frontend build check
+name: Frontend build and type checks
 
 on:
   push:
@@ -7,9 +7,17 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-checks-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -17,7 +25,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
       - name: Install dependencies
         run: npm install
+      - name: Type-check application source
+        run: npx tsc --noEmit
       - name: Build frontend
         run: npm run build
+      - name: Confirm server-side assistant endpoint exists
+        run: test -s api/assistant.ts
