@@ -84,7 +84,7 @@ export default function App() {
   async function sendAssistantMessage(override?: string) {
     const text = (override ?? assistantInput).trim();
     if (!text || assistantBusy) return;
-    const nextMessages: AssistantMessage[] = [...assistantMessages, { role: 'user', text }].slice(-10);
+    const nextMessages: AssistantMessage[] = [...assistantMessages, { role: 'user' as const, text }].slice(-10);
     setAssistantMessages(nextMessages);
     setAssistantInput('');
     setAssistantBusy(true);
@@ -103,10 +103,10 @@ export default function App() {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error || 'The assistant could not answer.');
-      setAssistantMessages((current) => [...current, { role: 'model', text: String(data.reply) }].slice(-12));
+      setAssistantMessages((current) => [...current, { role: 'model' as const, text: String(data.reply) }].slice(-12));
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Unknown assistant error.';
-      setAssistantMessages((current) => [...current, { role: 'model', text: 'I could not reply: ' + detail }].slice(-12));
+      setAssistantMessages((current) => [...current, { role: 'model' as const, text: 'I could not reply: ' + detail }].slice(-12));
       setDiagnostics((current) => [...current, { time: new Date().toISOString(), message: 'AI assistant: ' + detail }].slice(-20));
     } finally {
       setAssistantBusy(false);
@@ -194,7 +194,7 @@ export default function App() {
       });
 
       setStatus('WAN 2.2 is processing your request. Please wait and avoid refreshing the page.');
-      const result = await client.predict('/generate_video', {
+      const result: { data?: any[] } = await client.predict('/generate_video', {
         input_image: handle_file(imageFile),
         prompt: prompt.trim().slice(0, 1200),
         steps: 6,
