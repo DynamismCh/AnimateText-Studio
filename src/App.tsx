@@ -56,6 +56,8 @@ function App(){
  const [motionReference,setMotionReference]=useState<File|null>(null);
  const [motionPrompt,setMotionPrompt]=useState('A friendly character walks naturally, turns toward the camera, smiles, and waves. Keep the character design consistent.');
  const [aiMotionBusy,setAiMotionBusy]=useState(false);
+ const [fastMotionBusy,setFastMotionBusy]=useState(false);
+ const [fastMotionNote,setFastMotionNote]=useState('Use your selected character image to generate a short AI motion clip with Wan 2.2 Fast.');
  const [aiMotionResult,setAiMotionResult]=useState('');
  const [showAiMotionOnStage,setShowAiMotionOnStage]=useState(false);
  const [aiMotionNote,setAiMotionNote]=useState('Choose a short reference video to animate your selected transparent character.');
@@ -234,6 +236,93 @@ function App(){
   }catch(error){
    setTextVideoNote(error instanceof Error?error.message:'Could not generate the video. Please try again.');
   }finally{setTextVideoBusy(false)}
+ }
+
+ async function generateWanFastVideo(){
+  const character=characters.find(item=>selected.includes(item.id));
+  if(!character){setFastMotionNote('Select a character in Cast first.');return}
+  setFastMotionBusy(true);
+  setFastMotionNote('Connecting to the public Wan 2.2 Fast Space. This uses its free shared GPU quota, so requests may queue or be limited.');
+  let stage='loading the Gradio client';
+  const spaceUrl='https://zerogpu-aoti-wan2-2-fp8da-aoti-faster.hf.space';
+  try{
+   let clientModule:any;
+   try{
+    clientModule=await import(/* @vite-ignore */ 'https://esm.sh/@gradio/client@1.15.0?bundle');
+   }catch{
+    clientModule=await import(/* @vite-ignore */ 'https://cdn.jsdelivr.net/npm/@gradio/client@1.15.0/+esm');
+   }
+   const {Client,handle_file}:any=clientModule;
+   if(typeof Client?.connect!=='function'||typeof handle_file!=='function')throw new Error('The browser could not load the Gradio client library. Refresh the page and try again.');
+   stage='connecting to Wan 2.2 Fast';
+   const client=await Client.connect('zerogpu-aoti/wan2-2-fp8da-aoti-faster',{timeout:60000});
+   stage='reading the model input fields';
+   const apiInfo=await client.view_api();
+   const endpoints=apiInfo?.named_endpoints||{};
+   const endpointKey=Object.keys(endpoints).find(key=>key.replace(/^\//,'').toLowerCase()==='generate_video')||Object.keys(endpoints).find(key=>key.toLowerCase().includes('generate_video'));
+   if(!endpointKey)throw new Error('Wan 2.2 Fast did not expose its expected video-generation endpoint. Open the hosted Space and check whether its interface has changed.');
+   const parameters=endpoints[endpointKey]?.parameters||[];
+   const imageResponse=await fetch(character.url);
+   if(!imageResponse.ok)throw new Error('Could not read the selected character image. Try uploading the character again.');
+   const imageBlob=await imageResponse.blob();
+   const imageFile=new File([imageBlob],(character.name||'character')+'.png',{type:imageBlob.type||'image/png'});
+   const payload:any[]=[];
+   let imageUsed=false;
+   for(const param of parameters){
+    const label=String(param.label||param.parameter_name||param.name||'').toLowerCase();
+    const component=String(param.component||param.type||'').toLowerCase();
+    if((component.includes('image')||label.includes('input image')||label==='image')&&!imageUsed){
+     payload.push(handle_file(imageFile));imageUsed=true;continue;
+    }
+    if(label.includes('prompt')&&!label.includes('negative')){
+     payload.push((motionPrompt.trim()||idea.trim()||'A friendly cartoon character comes alive, walks naturally, turns toward the camera, smiles and waves. Keep the character design consistent.').slice(0,1200));continue;
+    }
+    if(label.includes('negative')){payload.push(param.parameter_default??param.default??'blurry, distorted body, extra limbs, flicker, text, watermark');continue}
+    if(label.includes('duration')){payload.push(2.5);continue}
+    if(label.includes('steps')||label.includes('inference')){payload.push(4);continue}
+    if(label.includes('randomize')){payload.push(true);continue}
+    if(label.includes('seed')){payload.push(42);continue}
+    if(label.includes('guidance')){payload.push(param.parameter_default??param.default??1);continue}
+    if(param.parameter_default!==undefined&&param.parameter_default!==null){payload.push(param.parameter_default);continue}
+    if(param.default!==undefined&&param.default!==null){payload.push(param.default);continue}
+    if(component.includes('checkbox')){payload.push(false);continue}
+    if(component.includes('slider')||component.includes('number')){payload.push(1);continue}
+    if(component.includes('textbox')){payload.push('');continue}
+    payload.push(null);
+   }
+   if(!imageUsed)throw new Error('The Space API did not expose an image input, so I stopped before using GPU time.');
+   stage='generating the short clip on the shared GPU';
+   setFastMotionNote('Your character image and motion prompt have been sent. Wan 2.2 Fast is generating a short clip; keep this tab open.');
+   const result=await client.predict(endpointKey,payload);
+   const findMedia=(value:any):string=>{
+    if(!value)return '';
+    if(typeof value==='string'){
+     if(/^https?:\/\//i.test(value))return value;
+     if(value.startsWith('/'))return spaceUrl+value;
+     return '';
+    }
+    if(Array.isArray(value)){for(const item of value){const found=findMedia(item);if(found)return found}return ''}
+    if(typeof value==='object'){
+     for(const key of ['url','path']){
+      const candidate=typeof value[key]==='string'?value[key]:'';
+      if(candidate&&(/^https?:\/\//i.test(candidate)||candidate.startsWith('/')))return candidate.startsWith('/')?spaceUrl+candidate:candidate;
+     }
+     for(const key of ['video','output','data','value','files'])if(key in value){const found=findMedia(value[key]);if(found)return found}
+    }
+    return '';
+   };
+   const mediaUrl=findMedia(result?.data);
+   if(!mediaUrl)throw new Error('The Space returned a response but no video URL could be detected. Open Wan 2.2 Fast directly to check its current output format.');
+   setAiMotionResult(mediaUrl);setShowAiMotionOnStage(true);
+   setFastMotionNote('Wan 2.2 Fast returned a video. Preview it below or use the download link. Free GPU availability and daily quotas can change.');
+   setMessage('Wan 2.2 Fast generated a character-motion clip.');
+  }catch(error){
+   const detail=error instanceof Error?error.message:'Unknown connection or model error.';
+   const network=/failed to fetch|networkerror|load failed|fetch/i.test(detail)
+    ? ' The browser could not reach the Space API; this may be a cross-origin restriction. You can still open the hosted Space directly.'
+    : ' If the free GPU quota is exhausted or the queue is busy, retry later on the hosted Space.';
+   setFastMotionNote('Failed while '+stage+': '+detail+network);
+  }finally{setFastMotionBusy(false)}
  }
 
  async function generateAiMotion(){
@@ -424,6 +513,7 @@ function App(){
     <section className="panel"><h2 className="section-title"><Wand2 size={17}/> Story</h2><textarea className="input h-32" value={idea} onChange={e=>setIdea(e.target.value)} placeholder="Describe the children's story..."/><button className="primary w-full mt-3" onClick={createEpisode} disabled={busy}><Sparkles size={17}/>{busy?'Directing episode...':'Make animated episode'}</button><p className="hint mt-2">Creates a 4-scene storyboard with simple placeholder movement. For real body movement, generate a clip in AI Motion Lab using a short motion-reference video.</p></section>
     <section className="panel"><h2 className="section-title"><Users size={17}/> Cast</h2><p className="hint">Select up to 3 characters. For a scene image that already contains the background, separate each character before animating.</p><label className="icon-btn cursor-pointer mt-3" title="Upload a scene image and separate a character"><Plus size={18}/><span className="text-xs ml-2">Separate character from scene</span><input type="file" accept="image/*" className="hidden" onChange={e=>{const f=e.target.files?.[0];if(f)beginSceneCutout(f);e.currentTarget.value=''}}/></label>{segmentPreview&&<div className="cutout-tool mt-3"><p className="hint mb-2">{segmentStatus}</p><p className="text-xs text-violet-200 mb-2">Click on the character in the image below. The image is processed in your browser; no upload to a separate AI service is needed.</p><img className={'cutout-source '+(segmentBusy?'busy':'')} src={segmentPreview} alt="Click the character you want to separate" onClick={cutOutCharacter}/><div className="flex gap-2 mt-2"><button className="control" onClick={()=>{if(segmentPreview.startsWith('blob:'))URL.revokeObjectURL(segmentPreview);setSegmentPreview('');setSegmentFile(null);setSegmentStatus('Choose a full scene image, then click directly on the character you want to separate.')}}>Cancel</button>{segmentBusy&&<span className="hint self-center">Working…</span>}</div></div>}<div className="space-y-2 mt-3">{characters.map(c=><div key={c.id} className={'character-card '+(selected.includes(c.id)?'selected':'')} onClick={()=>setSelected(p=>p.includes(c.id)?p.filter(x=>x!==c.id):p.length<3?[...p,c.id]:p)}><img src={resolveMediaUrl(c.url)} alt={c.name}/><span>{c.name}</span><span className="text-xs text-slate-500">{selected.includes(c.id)?'Selected':''}</span><button className="ml-auto text-slate-500 hover:text-red-400" onClick={e=>{e.stopPropagation();removeCharacter(c.id)}}><Trash2 size={15}/></button></div>)}{!characters.length&&<div className="empty">No characters yet.</div>}</div><label className="icon-btn cursor-pointer mt-3" title="Upload a character image with a transparent background"><Upload size={16}/><span className="text-xs ml-2">Add ready-made character</span><input type="file" accept="image/*" className="hidden" onChange={e=>e.target.files?.[0]&&addCharacter(e.target.files[0])}/></label></section>
     <section className="panel ai-motion-panel"><h2 className="section-title"><Film size={17}/> Text-to-Video API <span className="beta-tag">NEW</span></h2><p className="hint">Turn your story description into a short AI-generated video. This uses our own server-side API route, so provider credentials are never exposed in the browser.</p><button className="primary w-full mt-3" onClick={generateTextVideo} disabled={textVideoBusy||!idea.trim()}>{textVideoBusy?'Generating video…':'Generate video from story text'}</button><p className="hint mt-2">{textVideoNote}</p><p className="hint mt-2">Setup note: the API needs an HF_TOKEN secret in Vercel with Inference Providers permission. Video inference may use paid provider credits and is not guaranteed to be free.</p>{textVideoBusy&&<div className="motion-loading"><span className="motion-spinner"/><span>Waiting for the hosted video model. Keep this tab open.</span></div>}{aiMotionResult&&<div className="ai-result mt-3"><video controls playsInline src={aiMotionResult} className="w-full rounded-lg"/><a className="ai-motion-link mt-2" href={aiMotionResult} target="_blank" rel="noreferrer" download="animate-text-video.mp4"><Download size={16}/> Open or download video</a></div>}</section>
+    <section className="panel ai-motion-panel"><h2 className="section-title"><Film size={17}/> Wan 2.2 Fast <span className="beta-tag">FREE DEMO</span></h2><p className="hint">Animate your selected character image with Wan 2.2 Fast. This calls the public Hugging Face Space directly, so no paid inference-provider key is needed. Free shared GPU access is limited and may queue.</p><label className="label mt-3">Character motion prompt</label><textarea className="input h-20" value={motionPrompt} onChange={e=>setMotionPrompt(e.target.value)} placeholder="Describe how your character should move..."/><button className="primary w-full mt-3" onClick={generateWanFastVideo} disabled={!selected.length||fastMotionBusy}>{fastMotionBusy?'Generating with Wan 2.2 Fast…':'Animate selected character'}</button><p className="hint mt-2">{fastMotionNote}</p>{fastMotionBusy&&<div className="motion-loading"><span className="motion-spinner"/><span>Waiting for Wan 2.2 Fast. Keep this tab open.</span></div>}{aiMotionResult&&<div className="ai-result mt-3"><video controls playsInline src={aiMotionResult} className="w-full rounded-lg"/><a className="ai-motion-link mt-2" href={aiMotionResult} target="_blank" rel="noreferrer" download="wan-2-2-fast-character.mp4"><Download size={16}/> Open or download generated video</a><button className="control mt-2 w-full" onClick={()=>setShowAiMotionOnStage(true)}><Play size={16}/> Show AI clip in main stage</button></div>}<p className="hint mt-2"><a className="ai-motion-link" href="https://huggingface.co/spaces/zerogpu-aoti/wan2-2-fp8da-aoti-faster" target="_blank" rel="noreferrer">Open the original Wan 2.2 Fast Space ↗</a></p></section>
     <section className="panel ai-motion-panel"><h2 className="section-title"><Sparkles size={17}/> AI Motion Lab <span className="beta-tag">BETA</span></h2><p className="hint">Generate real AI-driven character movement with a hosted GPU. Nothing heavy is installed on your laptop.</p><label className="label mt-3">Motion reference video</label><input className="input" type="file" accept="video/*" onChange={e=>{setMotionReference(e.target.files?.[0]||null);setAiMotionResult('');setAiMotionNote(e.target.files?.[0]?'Reference clip selected. Select a character above, then generate.':'Choose a short reference clip.')}}/><p className="hint mt-1">Use a short clip showing the movement you want. Keep it small to reduce upload time.</p><label className="label mt-3">Motion instructions</label><textarea className="input h-20" value={motionPrompt} onChange={e=>setMotionPrompt(e.target.value)} placeholder="Describe how the character should move..."/><button className="primary w-full mt-3" onClick={generateAiMotion} disabled={!selected.length||!motionReference||aiMotionBusy}>{aiMotionBusy?'Generating AI motion…':'Generate AI character motion'}</button><p className="hint mt-2">{aiMotionNote}</p>{aiMotionBusy&&<div className="motion-loading"><span className="motion-spinner"/><span>Waiting for the hosted AI GPU. Please keep this tab open.</span></div>}{aiMotionResult&&<div className="ai-result mt-3"><video controls playsInline src={aiMotionResult} className="w-full rounded-lg" /><button className="control mt-2 w-full" onClick={()=>setShowAiMotionOnStage(true)}><Play size={16}/> Show AI clip in main stage</button><button className="control mt-2 w-full" onClick={()=>setShowAiMotionOnStage(false)}><Clapperboard size={16}/> Return to storyboard preview</button><a className="ai-motion-link mt-2" href={aiMotionResult} target="_blank" rel="noreferrer" download><Download size={16}/> Open or download generated motion</a></div>}<details className="mt-3"><summary className="hint cursor-pointer">Fallback and troubleshooting</summary><p className="hint mt-2">If the public model is paused, overloaded, or changes its API, try the hosted studio directly. Free GPU access is limited and generation is not guaranteed.</p><button className="control mt-2" onClick={downloadCharacterForAi} disabled={!selected.length}><Download size={16}/> Download selected character cutout</button><a className="ai-motion-link mt-2" href="https://huggingface.co/spaces/hugging-apps/wan2-2-animate-2-14b" target="_blank" rel="noreferrer"><Sparkles size={16}/> Open hosted Wan Animate studio ↗</a></details></section>
     <section className="panel"><h2 className="section-title"><Volume2 size={17}/> Audio</h2><label className="label">Preview voice</label><div className="flex gap-2"><select className="input" value={voiceName} onChange={e=>setVoiceName(e.target.value)}><option value="">Automatic English voice</option>{voices.map(v=><option key={v.name} value={v.name}>{v.name} ({v.lang})</option>)}</select><button className="icon-btn" onClick={previewVoice} disabled={!episode}><Volume2 size={17}/></button></div><div className="audio-toggles"><button className={'audio-toggle '+(musicOn?'on':'')} onClick={()=>setMusicOn(v=>!v)}>{musicOn?<Music/>:<VolumeX/>} Background music</button><button className={'audio-toggle '+(sfxOn?'on':'')} onClick={()=>setSfxOn(v=>!v)}>{sfxOn?<Volume2/>:<VolumeX/>} Sound effects</button></div><p className="hint">Audio is included in exported WebM.</p></section>
     <section className="panel"><h2 className="section-title">Storyboard</h2>{episode?.shots.map((s,i)=><button key={i} onClick={()=>{setShotIndex(i);setPlaying(false);setElapsed(0)}} className={'scene-row '+(i===shotIndex?'active':'')}><span>{i+1}</span><span className="truncate">{s.dialogue||s.text}</span><small>{s.duration}s</small></button>)}{!episode&&<div className="empty">Your episode shots will appear here.</div>}</section>
