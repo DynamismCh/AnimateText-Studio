@@ -95,41 +95,76 @@ export default async function handler(req: RequestLike, res: ResponseLike) {
     contents[0].parts[0].text = contextText + '\n\nConversation:\n' + contents[0].parts[0].text;
   }
 
-  const model = process.env.GEMINI_MODEL || 'gemini-3.5-flash';
+  const configuredModel = process.env.GEMINI_MODEL || 'gemini-3.5-flash';
+  // Keep the configured model first, then try current lightweight/stable alternatives
+  // if the provider reports temporary overload. Do not cascade on quota/auth errors.
+  const models = [...new Set([configuredModel, 'gemini-3.5-flash-lite', 'gemini-3.6-flash', 'gemini-3.8-flash'])];
   try {
-    const upstream = await fetch(
-      'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent?key=' + encodeURIComponent(apiKey),
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          systemInstruction: {
-            parts: [{
-              text: 'You are the friendly in-app assistant for AnimateText Studio, a children’s animation project featuring Sunny and Bloop. Help with short story ideas, scene planning, simple movement prompts, character consistency, voice and sound-effect ideas, and diagnosing the app. Be practical and clear for a beginner. Never claim you can see live screens, GitHub commits, logs, or files unless supplied in the message. Distinguish app errors from Hugging Face/WAN GPU quota or service failures. Prefer free options and warn before recommending anything that may cost money. Never ask for API keys, passwords, or secrets. Do not claim a video was generated unless the app says so.'
-            }]
-          },
-          contents,
-          generationConfig: { temperature: 0.6, maxOutputTokens: 700 }
-        }),
-        signal: AbortSignal.timeout(25000)
+    let lastProviderMessage = '';
+    let lastStatus = 502;
+    for (const model of models) {
+      let upstream: Response;
+      let payload: {
+        candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+        error?: { message?: string; status?: string };
+      };
+      try {
+        upstream = await fetch(
+          'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent?key=' + encodeURIComponent(apiKey),
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              systemInstruction: {
+                parts: [{
+                  text: 'You are the friendly in-app assistant for AnimateText Studio, a children’s animation project featuring Sunny and Bloop. Help with short story ideas, scene planning, simple movement prompts, character consistency, voice and sound-effect ideas, and diagnosing the app. Be practical and clear for a beginner. Never claim you can see live screens, GitHub commits, logs, or files unless supplied in the message. Distinguish app errors from Hugging Face/WAN GPU quota or service failures. Prefer free options and warn before recommending anything that may cost money. Never ask for API keys, passwords, or secrets. Do not claim a video was generated unless the app says so.'
+                }]
+              },
+              contents,
+              generationConfig: { temperature: 0.6, maxOutputTokens: 700 }
+            }),
+            signal: AbortSignal.timeout(25000)
+          }
+        );
+        payload = await upstream.json() as {
+          candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+          error?: { message?: string; status?: string };
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown network error';
+        if (message.toLowerCase().includes('timeout')) {
+          return res.status(502).json({ error: 'The AI helper timed out. Please try again.' });
+        }
+        return res.status(502).json({ error: 'Could not reach the AI provider. Check the connection and try again.' });
       }
-    );
-    const payload = await upstream.json() as {
-      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-      error?: { message?: string; status?: string };
-    };
-    if (!upstream.ok) {
-      if (upstream.status === 429) {
-        return res.status(429).json({ error: 'Gemini’s free quota or rate limit has been reached. Wait for the limit to reset, then try again.' });
+
+      if (upstream.ok) {
+        const reply = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join('').trim();
+        if (!reply) {
+          lastStatus = 502;
+          lastProviderMessage = 'The AI provider returned an empty reply.';
+          continue;
+        }
+        return res.status(200).json({ reply, model });
       }
+
+      lastStatus = upstream.status;
+      lastProviderMessage = String(payload.error?.message ?? upstream.statusText).slice(0, 300);
       if (upstream.status === 401 || upstream.status === 403) {
         return res.status(502).json({ error: 'Gemini rejected the API key or access to this model. Check the GEMINI_API_KEY and GEMINI_MODEL settings in Vercel.' });
       }
-      return res.status(502).json({ error: 'The AI provider returned an error: ' + String(payload.error?.message ?? upstream.statusText).slice(0, 300) });
+      if (upstream.status === 429) {
+        return res.status(429).json({ error: 'Gemini’s free quota or rate limit has been reached. Wait for the limit to reset, then try again.' });
+      }
+      // Only fall back for transient overload/server failures or an empty response.
+      if (![500, 502, 503, 504].includes(upstream.status) && lastProviderMessage !== 'The AI provider returned an empty reply.') {
+        break;
+      }
     }
-    const reply = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join('').trim();
-    if (!reply) return res.status(502).json({ error: 'The AI provider returned an empty reply. Please try a shorter message.' });
-    return res.status(200).json({ reply, model });
+    if ([500, 502, 503, 504].includes(lastStatus)) {
+      return res.status(502).json({ error: 'Gemini is temporarily busy across the available models. Please wait a little and try again. Last provider message: ' + lastProviderMessage });
+    }
+    return res.status(502).json({ error: 'The AI provider returned an error: ' + lastProviderMessage });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown network error';
     return res.status(502).json({ error: message.toLowerCase().includes('timeout') ? 'The AI helper timed out. Please try again.' : 'Could not reach the AI provider. Check the connection and try again.' });
