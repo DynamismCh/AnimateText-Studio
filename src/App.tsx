@@ -270,9 +270,10 @@ function App(){
    const result=await response.json().catch(()=>({}));
    if(!response.ok)throw new Error(result.error||result.detail||'The Wan 2.2 Fast server connection failed.');
    if(!result.videoUrl)throw new Error('The Space finished without returning a usable video link.');
-   setAiMotionResult(result.videoUrl);
+   const playableUrl='/api/wan-fast-video?url='+encodeURIComponent(result.videoUrl);
+   setAiMotionResult(playableUrl);
    setShowAiMotionOnStage(true);
-   setFastMotionNote('Wan 2.2 Fast returned a video. Preview it below or open the download link.');
+   setFastMotionNote('Video ready. Play it in the preview below, or use the download link to save it.');
    setMessage('Wan 2.2 Fast generated a character-motion clip.');
   }catch(error){
    const detail=error instanceof Error?error.message:'Unknown connection or model error.';
