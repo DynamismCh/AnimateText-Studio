@@ -2,27 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { AudioLines, Download, LoaderCircle, Music2, Play, Upload, MessageCircle } from 'lucide-react';
 
 const STARTER_SCRIPT = 'Sunny: Hi, Bloop! Are you ready for an adventure?\nBloop: I think so! Is there going to be snacks?\nSunny: Maybe. Let’s find out together!';
-const LIPSYNC_SPACE = 'henrybit/musetalk-1-5';
-const LIPSYNC_SPACE_URL = 'https://huggingface.co/spaces/henrybit/musetalk-1-5';
-
-function findLipSyncVideo(value: any): string {
-  if (!value) return '';
-  if (typeof value === 'string') {
-    if (/^https?:\/\//i.test(value)) return value;
-    if (value.startsWith('/file=') || value.startsWith('/gradio_api/file=')) return 'https://henrybit-musetalk-1-5.hf.space' + value;
-    return '';
-  }
-  if (Array.isArray(value)) {
-    for (const item of value) { const found = findLipSyncVideo(item); if (found) return found; }
-    return '';
-  }
-  if (typeof value === 'object') {
-    if (typeof value.url === 'string' && value.url) return value.url.startsWith('/') ? 'https://henrybit-musetalk-1-5.hf.space' + value.url : value.url;
-    for (const key of ['video', 'output', 'data', 'value', 'files', 'path']) if (key in value) { const found = findLipSyncVideo(value[key]); if (found) return found; }
-  }
-  return '';
-}
-
 function base64ToBlob(base64: string, type: string) {
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
@@ -56,6 +35,10 @@ export default function AudioWorkshop({ videoUrl = '' }: { videoUrl?: string }) 
   const [lipSyncStatus, setLipSyncStatus] = useState('Choose a saved video with one character visible, then generate that character’s line.');
   const [lipSyncVideoUrl, setLipSyncVideoUrl] = useState('');
   const [lipSyncDownloadBusy, setLipSyncDownloadBusy] = useState(false);
+  const [mouthX, setMouthX] = useState(50);
+  const [mouthY, setMouthY] = useState(58);
+  const [mouthWidth, setMouthWidth] = useState(12);
+  const [mouthHeight, setMouthHeight] = useState(7);
   const [mixBusy, setMixBusy] = useState(false);
   const [mixedUrl, setMixedUrl] = useState('');
   const [mixStatus, setMixStatus] = useState('Generate a video and voice track, then combine them here.');
@@ -136,46 +119,39 @@ export default function AudioWorkshop({ videoUrl = '' }: { videoUrl?: string }) 
     const audioUrl = lipSyncSpeaker === 'Sunny' ? sunnyLineAudioUrl : bloopLineAudioUrl;
     if (!uploadedVideoFile) { setLipSyncStatus('Choose a video file from your computer first.'); return; }
     if (!audioUrl) { setLipSyncStatus('Generate the selected character’s separate voice clip first.'); return; }
-    setLipSyncBusy(true); setLipSyncStatus('Checking the free MuseTalk demo connection…');
-    let stage = 'connecting to the MuseTalk service';
+    if (typeof MediaRecorder === 'undefined') { setLipSyncStatus('This browser cannot export video. Please use a recent version of Chrome or Edge.'); return; }
+    setLipSyncBusy(true); setLipSyncStatus('Preparing local lip-sync. No GPU or external lip-sync service is used…');
+    let context: AudioContext | undefined; let recorder: MediaRecorder | undefined; let animationFrame = 0;
+    let video: HTMLVideoElement | undefined; let audio: HTMLAudioElement | undefined; let canvasStream: MediaStream | undefined; let outputStream: MediaStream | undefined;
     try {
-      const audioResponse = await fetch(audioUrl);
-      if (!audioResponse.ok) throw new Error('The generated voice clip could not be read. Generate that character’s voice again.');
-      const audioBlob = await audioResponse.blob();
-      const audioFile = new File([audioBlob], lipSyncSpeaker.toLowerCase() + '-dialogue.wav', { type: 'audio/wav' });
-      const { Client, handle_file } = await import('@gradio/client');
-      const client = await Client.connect(LIPSYNC_SPACE, {
-        status_callback: (spaceStatus: any) => {
-          if (spaceStatus?.status === 'running') setLipSyncStatus('MuseTalk is awake. Uploading the video and voice clip…');
-          else if (spaceStatus?.status === 'sleeping' || spaceStatus?.status === 'building' || spaceStatus?.status === 'starting') setLipSyncStatus('MuseTalk is waking up or starting. Please wait…');
-          else if (spaceStatus?.status === 'error' || spaceStatus?.status === 'space_error') setLipSyncStatus('MuseTalk is reporting a service error. Try opening the demo directly.');
-        }
-      });
-      stage = 'uploading the video and voice clip';
-      setLipSyncStatus('Connected. Uploading your video and voice clip to MuseTalk…');
-      stage = 'running the lip-sync model';
-      const result: any = await client.predict('/generate', {
-        audio: handle_file(audioFile),
-        video: handle_file(uploadedVideoFile),
-        bbox_shift: 0,
-        extra_margin: 10,
-        parsing_mode: 'jaw',
-        left_cheek_width: 90,
-        right_cheek_width: 90
-      });
-      const outputUrl = findLipSyncVideo(result?.data?.[0] ?? result?.data);
-      if (!outputUrl) throw new Error('MuseTalk returned a response, but no output video link was found. Open the demo directly to check whether its API has changed.');
-      if (lipSyncVideoUrlRef.current) URL.revokeObjectURL(lipSyncVideoUrlRef.current);
-      lipSyncVideoUrlRef.current = outputUrl.startsWith('blob:') ? outputUrl : '';
-      setLipSyncVideoUrl(outputUrl);
-      setLipSyncStatus('MuseTalk returned a lip-synced clip for ' + lipSyncSpeaker + '. Please preview it carefully; stylized cartoon faces may not be detected correctly.');
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : 'Unknown lip-sync error.';
-      const isFetchFailure = /failed to fetch|networkerror|load failed/i.test(detail);
-      const explanation = isFetchFailure
-        ? ' The browser could not reach MuseTalk while ' + stage + '. This can happen if the demo is waking up, its browser API upload is blocked, or the Space is temporarily unavailable. No lip-sync result was created. Open the demo directly, check that it finishes loading, and upload the same video and voice WAV there.'
-        : '';
-      setLipSyncStatus('Lip-sync did not finish: ' + detail + '.' + explanation);
+      video = document.createElement('video'); video.src = uploadedVideoUrl; video.muted = true; video.playsInline = true; video.preload = 'auto';
+      await new Promise<void>((resolve, reject) => { video!.onloadedmetadata = () => resolve(); video!.onerror = () => reject(new Error('Could not read the selected video. Please choose a playable MP4 or WebM file.')); video!.load(); });
+      if (!video.videoWidth || !video.videoHeight || !Number.isFinite(video.duration)) throw new Error('The selected video has no readable dimensions or duration.');
+      const canvas = document.createElement('canvas'); canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d'); if (!ctx) throw new Error('Your browser could not create the animation canvas.');
+      context = new AudioContext(); const destination = context.createMediaStreamDestination(); const analyser = context.createAnalyser(); analyser.fftSize = 1024; const audioData = new Uint8Array(analyser.fftSize);
+      audio = new Audio(audioUrl); audio.preload = 'auto'; const source = context.createMediaElementSource(audio); source.connect(analyser); analyser.connect(destination);
+      canvasStream = canvas.captureStream(30); outputStream = new MediaStream([...canvasStream.getVideoTracks(), ...destination.stream.getAudioTracks()]);
+      const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus') ? 'video/webm;codecs=vp8,opus' : 'video/webm'; recorder = new MediaRecorder(outputStream, { mimeType });
+      const chunks: BlobPart[] = []; recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
+      const finished = new Promise<Blob>((resolve, reject) => { recorder!.onstop = () => { const blob = new Blob(chunks, { type: recorder!.mimeType || 'video/webm' }); if (blob.size) resolve(blob); else reject(new Error('The exported clip was empty. Please try again.')); }; recorder!.onerror = () => reject(new Error('The browser could not encode the local lip-sync video.')); });
+      const drawFrame = () => {
+        if (!ctx || !video) return; if (video.readyState >= 2) ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        analyser.getByteTimeDomainData(audioData); let sum = 0; for (let i = 0; i < audioData.length; i++) { const sample = (audioData[i] - 128) / 128; sum += sample * sample; }
+        const rms = Math.sqrt(sum / audioData.length); const openness = Math.min(1, Math.max(0, (rms - 0.012) * 16));
+        const cx = canvas.width * mouthX / 100; const cy = canvas.height * mouthY / 100; const w = canvas.width * mouthWidth / 100; const h = canvas.height * mouthHeight / 100 * (0.15 + openness);
+        if (openness > 0.06) { ctx.save(); ctx.translate(cx, cy); ctx.fillStyle = '#32151a'; ctx.beginPath(); ctx.ellipse(0, 0, w / 2, Math.max(2, h / 2), 0, 0, Math.PI * 2); ctx.fill();
+          if (openness > 0.32) { ctx.fillStyle = '#f8e9d8'; ctx.beginPath(); ctx.ellipse(0, -h * 0.17, w * 0.34, Math.max(1, h * 0.13), 0, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#d94b63'; ctx.beginPath(); ctx.ellipse(0, h * 0.18, w * 0.23, Math.max(1, h * 0.14), 0, 0, Math.PI * 2); ctx.fill(); } ctx.restore(); }
+        animationFrame = requestAnimationFrame(drawFrame);
+      };
+      await context.resume(); video.currentTime = 0; audio.currentTime = 0; await video.play(); await audio.play(); drawFrame(); recorder.start(250);
+      const durationMs = Math.max(video.duration, Number.isFinite(audio.duration) ? audio.duration : 0) * 1000;
+      setLipSyncStatus('Recording locally. Keep this tab open until export finishes…'); await new Promise<void>((resolve) => window.setTimeout(resolve, Math.min(durationMs, 180000) + 300));
+      cancelAnimationFrame(animationFrame); if (recorder.state !== 'inactive') recorder.stop(); const blob = await finished; const resultUrl = URL.createObjectURL(blob);
+      if (lipSyncVideoUrlRef.current) URL.revokeObjectURL(lipSyncVideoUrlRef.current); lipSyncVideoUrlRef.current = resultUrl; setLipSyncVideoUrl(resultUrl);
+      setLipSyncStatus('Local mouth animation exported for ' + lipSyncSpeaker + '. Preview it and adjust position/size if needed. This uses audio volume, not AI phoneme-perfect lip-sync.');
+      video.pause(); audio.pause(); canvasStream.getTracks().forEach((track) => track.stop()); outputStream.getTracks().forEach((track) => track.stop()); await context.close();
+    } catch (error) { cancelAnimationFrame(animationFrame); if (recorder && recorder.state !== 'inactive') recorder.stop(); if (canvasStream) canvasStream.getTracks().forEach((track) => track.stop()); if (outputStream) outputStream.getTracks().forEach((track) => track.stop()); if (context && context.state !== 'closed') await context.close().catch(() => undefined); setLipSyncStatus(error instanceof Error ? error.message : 'Could not create the local lip-sync video.');
     } finally { setLipSyncBusy(false); }
   }
 
@@ -358,7 +334,7 @@ export default function AudioWorkshop({ videoUrl = '' }: { videoUrl?: string }) 
     </div>
     <div className="wan-audio-mixer wan-lipsync-panel">
       <h3><MessageCircle size={16} /> Character lip-sync — Sunny &amp; Bloop</h3>
-      <p className="wan-help">This experimental step uses MuseTalk to animate a character’s mouth from a separate voice clip. Use a short video where only the intended speaker’s face is clear. It may struggle with some cartoon designs, and the free demo has its own shared GPU limits.</p>
+      <p className="wan-help">Free local fallback: animate a mouth overlay from the voice volume directly in your browser. It uses no GPU service or extra quota. This is best for simple cartoon faces; adjust the mouth position and size below.</p>
       <label className="wan-label" htmlFor="sunny-lipsync-line">Sunny’s line</label>
       <textarea id="sunny-lipsync-line" className="wan-audio-script" value={sunnyLine} onChange={(event) => setSunnyLine(event.target.value)} maxLength={700} placeholder="Write Sunny's line…" />
       <button className="wan-download" onClick={() => void generateSpeakerVoice('Sunny')} disabled={Boolean(speakerBusy) || !sunnyLine.trim()}>{speakerBusy === 'Sunny' ? <LoaderCircle className="wan-spin" size={17} /> : <AudioLines size={17} />} Generate Sunny voice</button>
@@ -370,10 +346,16 @@ export default function AudioWorkshop({ videoUrl = '' }: { videoUrl?: string }) 
       <label className="wan-label" htmlFor="lipsync-speaker">Which character is speaking in this video?</label>
       <select id="lipsync-speaker" value={lipSyncSpeaker} onChange={(event) => setLipSyncSpeaker(event.target.value as 'Sunny' | 'Bloop')}><option value="Sunny">Sunny</option><option value="Bloop">Bloop</option></select>
       <p className="wan-help">The video selected in this section’s exporter is used as the source. Choose a local MP4/WebM/MOV file there first. For the most reliable test, use a clip showing only Sunny when syncing Sunny, and only Bloop when syncing Bloop.</p>
-      <button className="wan-generate" onClick={() => void runLipSync()} disabled={lipSyncBusy || !uploadedVideoFile || !(lipSyncSpeaker === 'Sunny' ? sunnyLineAudioUrl : bloopLineAudioUrl)}>{lipSyncBusy ? <><LoaderCircle className="wan-spin" size={18} /> Lip-syncing…</> : <><MessageCircle size={18} /> Sync mouth to {lipSyncSpeaker}’s voice</>}</button>
+      <div className="wan-audio-options">
+        <div><label className="wan-label" htmlFor="mouth-x">Mouth left/right: {mouthX}%</label><input id="mouth-x" type="range" min="5" max="95" value={mouthX} onChange={(event) => setMouthX(Number(event.target.value))} /></div>
+        <div><label className="wan-label" htmlFor="mouth-y">Mouth up/down: {mouthY}%</label><input id="mouth-y" type="range" min="5" max="95" value={mouthY} onChange={(event) => setMouthY(Number(event.target.value))} /></div>
+        <div><label className="wan-label" htmlFor="mouth-width">Mouth width: {mouthWidth}%</label><input id="mouth-width" type="range" min="3" max="30" value={mouthWidth} onChange={(event) => setMouthWidth(Number(event.target.value))} /></div>
+        <div><label className="wan-label" htmlFor="mouth-height">Mouth height: {mouthHeight}%</label><input id="mouth-height" type="range" min="2" max="20" value={mouthHeight} onChange={(event) => setMouthHeight(Number(event.target.value))} /></div>
+      </div>
+      <p className="wan-help">Position is measured as a percentage of the video frame. Set it over the character’s mouth, then adjust width and height. The mouth opens when the voice is louder and closes during pauses.</p>
+      <button className="wan-generate" onClick={() => void runLipSync()} disabled={lipSyncBusy || !uploadedVideoFile || !(lipSyncSpeaker === 'Sunny' ? sunnyLineAudioUrl : bloopLineAudioUrl)}>{lipSyncBusy ? <><LoaderCircle className="wan-spin" size={18} /> Creating local mouth animation…</> : <><MessageCircle size={18} /> Animate {lipSyncSpeaker}’s mouth (free)</>}</button>
       <p className="wan-status" aria-live="polite">{lipSyncStatus}</p>
       {lipSyncVideoUrl && <div className="wan-audio-result"><strong>Lip-synced result</strong><video controls playsInline preload="metadata" src={lipSyncVideoUrl} /><button className="wan-download" onClick={() => void downloadLipSyncVideo()} disabled={lipSyncDownloadBusy}>{lipSyncDownloadBusy ? <LoaderCircle className="wan-spin" size={17} /> : <Download size={17} />} Download lip-synced video</button></div>}
-      <a className="wan-open-link" href={LIPSYNC_SPACE_URL} target="_blank" rel="noreferrer">Open MuseTalk demo directly ↗</a>
     </div>
     <p className="wan-quota-note">The browser combines the generated video with your dialogue, music and effects locally; no extra paid video service is used. The current WAN clip is about 3.5 seconds long, so dialogue may be cut short if it is too long. Use audio you own or have permission to use.</p>
   </section>;
