@@ -232,17 +232,24 @@ function App(){
    aiStage='connecting to the Hugging Face AI studio';
    let client:any;
    let connectError:any;
-   for(let attempt=1;attempt<=2;attempt++){
-    try{
-     client=await Client.connect('hugging-apps/wan2-2-animate-2-14b');
-     connectError=null;
-     break;
-    }catch(error){
-     connectError=error;
-     if(attempt<2)await new Promise(resolve=>window.setTimeout(resolve,1800));
+   const studioTargets=[
+    'https://hugging-apps-wan2-2-animate-2-14b.hf.space',
+    'hugging-apps/wan2-2-animate-2-14b'
+   ];
+   for(const target of studioTargets){
+    for(let attempt=1;attempt<=2;attempt++){
+     try{
+      client=await Client.connect(target,{timeout:60000});
+      connectError=null;
+      break;
+     }catch(error){
+      connectError=error;
+      if(attempt<2)await new Promise(resolve=>window.setTimeout(resolve,2000));
+     }
     }
+    if(client)break;
    }
-   if(!client)throw new Error('Could not connect to the hosted AI studio after two attempts. Open the hosted studio link below to check whether it is awake or temporarily unavailable. '+(connectError instanceof Error?connectError.message:''));
+   if(!client)throw new Error('The browser could not reach either the direct AI studio endpoint or its Hugging Face Space API after retries. '+(connectError instanceof Error?connectError.message:'No network detail was provided.')+' If the direct studio page also fails to load, the service or your network may be blocking access.');
    aiStage='reading the hosted model API';
    const apiInfo=await client.view_api();
    const endpoints=apiInfo?.named_endpoints||{};
