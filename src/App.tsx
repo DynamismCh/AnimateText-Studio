@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Bug, Download, Film, ImagePlus, LoaderCircle, MessageCircle, Play, Send, Trash2, WandSparkles } from 'lucide-react';
+import AudioWorkshop from './components/AudioWorkshop';
 import { deleteSavedCharacter, loadSavedCharacters, saveCharacterImage, type LocalCharacter } from './lib/localCharacters';
 
 const SPACE = 'zerogpu-aoti/wan2-2-fp8da-aoti-faster';
@@ -308,9 +309,11 @@ export default function App() {
         </section>
       </main>
 
+      <AudioWorkshop />
+
       <section className="wan-panel wan-assistant-panel">
         <div className="wan-assistant-heading">
-          <div><h2><MessageCircle size={19} /> 4. Studio assistant</h2><p className="wan-help">Get help with Sunny and Bloop, scene ideas, movement prompts, and the latest app error.</p></div>
+          <div><h2><MessageCircle size={19} /> 5. Studio assistant</h2><p className="wan-help">Get help with Sunny and Bloop, scene ideas, movement prompts, and the latest app error.</p></div>
           <button className="wan-diagnostics" onClick={downloadDiagnostics} title="Download a report you can share when troubleshooting"><Bug size={16} /> Export diagnostics</button>
         </div>
         <div className="wan-chat-log" aria-live="polite">
