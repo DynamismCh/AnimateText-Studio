@@ -9,7 +9,7 @@ function base64ToBlob(base64: string, type: string) {
   return new Blob([bytes], { type });
 }
 
-export default function AudioWorkshop({ videoUrl = '' }: { videoUrl?: string }) {
+export default function AudioWorkshop({ videoUrl = '', onDialogueReady }: { videoUrl?: string; onDialogueReady?: (url: string) => void }) {
   const [script, setScript] = useState(STARTER_SCRIPT);
   const [sunnyVoice, setSunnyVoice] = useState('Kore');
   const [bloopVoice, setBloopVoice] = useState('Puck');
@@ -186,7 +186,7 @@ export default function AudioWorkshop({ videoUrl = '' }: { videoUrl?: string }) 
       if (!blob.size) throw new Error('The generated audio file was empty.');
       const url = URL.createObjectURL(blob);
       if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
-      audioUrlRef.current = url; setAudioUrl(url);
+      audioUrlRef.current = url; setAudioUrl(url); onDialogueReady?.(url);
       setAudioFileName('sunny-and-bloop-dialogue.wav');
       setStatus('Voice track ready. Preview it below, then download the WAV file.');
     } catch (error) {
