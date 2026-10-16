@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { AudioLines, Download, Film, LoaderCircle, Music2, Upload, WandSparkles } from 'lucide-react';
+import { AudioLines, Download, Film, LoaderCircle, Music2, WandSparkles } from 'lucide-react';
 import type { LocalCharacter } from '../lib/localCharacters';
 import { getMotionFrame } from '../lib/lightweightMotionEngine';
 
@@ -48,7 +48,6 @@ export default function SceneStudio({ characters, generatedDialogueUrl }: { char
   const [effectsUrl, setEffectsUrl] = useState('');
   const [musicName, setMusicName] = useState('');
   const [effectsName, setEffectsName] = useState('');
-  const dialogueRef = useRef('');
   const musicRef = useRef('');
   const effectsRef = useRef('');
 
