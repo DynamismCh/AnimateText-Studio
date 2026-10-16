@@ -39,6 +39,7 @@ export default function SceneStudio({ characters }: { characters: LocalCharacter
   const [secondary, setSecondary] = useState('');
   const [previewing, setPreviewing] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [planning, setPlanning] = useState(false);
   const [sceneIndex, setSceneIndex] = useState(0);
   const [status, setStatus] = useState('Write a short story, build scenes, preview, then export a video directly to your device.');
   const [exportUrl, setExportUrl] = useState('');
@@ -104,11 +105,38 @@ export default function SceneStudio({ characters }: { characters: LocalCharacter
     return () => cancelAnimationFrame(frame);
   }, [previewing, exporting, scenes, primary, secondary]);
 
-  function buildScenes() {
-    const next = makeScenes(story);
-    if (!next.length) { setStatus('Enter at least one sentence first.'); return; }
-    setScenes(next); scenesRef.current = next; setSceneIndex(0);
-    setStatus('Built ' + next.length + ' scenes locally. No WAN GPU credits were used.');
+  async function buildScenes() {
+    if (!story.trim()) { setStatus('Enter a story first.'); return; }
+    setPlanning(true); setStatus('Asking the lightweight AI planner to organise your story into scenes…');
+    try {
+      const response = await fetch('/api/assistant', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', text: 'Turn this children’s animation story into a JSON array of 1 to 6 scenes. Return ONLY valid JSON, no markdown. Each object must have text (short scene action/dialogue based on the story), action (exactly one of walk, run, jump, wave, dance, talk), and background (integer 0 to 4). Keep it child-friendly and do not add characters. Story: ' + story.slice(0, 2200) }],
+          context: { status: 'Creating a local scene plan', selectedCharacterName: 'Sunny and Bloop', videoReady: false }
+        })
+      });
+      const data = await response.json(); if (!response.ok) throw new Error(data?.error || 'AI scene planning is not available right now.');
+      const raw = String(data.reply || '').trim();
+      const start = raw.indexOf('['), end = raw.lastIndexOf(']');
+      if (start < 0 || end < start) throw new Error('The AI planner returned an unexpected scene format.');
+      const parsed = JSON.parse(raw.slice(start, end + 1));
+      if (!Array.isArray(parsed)) throw new Error('The AI planner returned an unexpected scene format.');
+      const allowed: Action[] = ['walk', 'run', 'jump', 'wave', 'dance', 'talk'];
+      const aiScenes: Scene[] = parsed.slice(0, 6).filter((item: any) => item && typeof item.text === 'string' && item.text.trim()).map((item: any, index: number) => ({
+        id: index + 1, text: item.text.trim().slice(0, 220),
+        action: allowed.includes(item.action) ? item.action : actionFor(item.text),
+        background: Number.isInteger(item.background) ? Math.max(0, Math.min(4, item.background)) : index % backgrounds.length,
+      }));
+      if (!aiScenes.length) throw new Error('The AI planner did not return any usable scenes.');
+      setScenes(aiScenes); scenesRef.current = aiScenes; setSceneIndex(0);
+      setStatus('AI planned ' + aiScenes.length + ' scenes. Animation and export run locally, without WAN GPU credits.');
+    } catch (error) {
+      const fallback = makeScenes(story);
+      if (!fallback.length) { setStatus(error instanceof Error ? error.message : 'Could not plan scenes.'); return; }
+      setScenes(fallback); scenesRef.current = fallback; setSceneIndex(0);
+      setStatus('AI planning was unavailable, so a simple local scene plan was created instead. ' + (error instanceof Error ? error.message : ''));
+    } finally { setPlanning(false); }
   }
   function togglePreview() {
     if (previewing) { activeRef.current = false; setPreviewing(false); setStatus('Preview paused.'); }
@@ -145,12 +173,12 @@ export default function SceneStudio({ characters }: { characters: LocalCharacter
 
   return <section className="wan-panel scene-studio-panel">
     <h2><Film size={19} /> 4. Lightweight scene-to-video studio</h2>
-    <p className="wan-help">Turn a story into short animated scenes without WAN GPU credits. This first version uses a lightweight local scene planner and procedural 2D motion, then exports a WebM video in your browser. It is not yet a full AI video diffusion model.</p>
+    <p className="wan-help">Use the AI assistant to plan scenes, then render simple 2D character motion in your browser and export a WebM. No WAN GPU credits are used for this scene-based workflow. It is a lightweight AI-assisted 2D generator, not photorealistic video diffusion.</p>
     <div className="scene-studio-grid">
       <div className="scene-studio-controls">
         <label className="wan-label" htmlFor="scene-title">Episode title</label><input id="scene-title" value={title} maxLength={80} onChange={(e) => setTitle(e.target.value)} />
         <label className="wan-label" htmlFor="scene-story">Story / script</label><textarea id="scene-story" value={story} onChange={(e) => setStory(e.target.value)} rows={5} maxLength={2400} placeholder="Write one sentence per scene…" />
-        <div className="scene-studio-buttons"><button className="wan-generate" onClick={buildScenes} disabled={exporting}><WandSparkles size={17} /> Build scenes</button><button className="wan-download" onClick={togglePreview} disabled={exporting}>{previewing ? 'Pause preview' : 'Preview animation'}</button></div>
+        <div className="scene-studio-buttons"><button className="wan-generate" onClick={buildScenes} disabled={exporting || planning}>{planning ? <><LoaderCircle className="wan-spin" size={17} /> Planning…</> : <><WandSparkles size={17} /> Build scenes</>}</button><button className="wan-download" onClick={togglePreview} disabled={exporting}>{previewing ? 'Pause preview' : 'Preview animation'}</button></div>
         <label className="wan-label" htmlFor="scene-primary">Main character</label><select id="scene-primary" value={primary} onChange={(e) => setPrimary(e.target.value)} disabled={!characters.length}>{!characters.length && <option value="">Upload a character above first</option>}{characters.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
         <label className="wan-label" htmlFor="scene-secondary">Second character</label><select id="scene-secondary" value={secondary} onChange={(e) => setSecondary(e.target.value)} disabled={!characters.length}>{characters.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
         <button className="wan-download" onClick={() => void exportVideo()} disabled={exporting || !characters.length}>{exporting ? <><LoaderCircle className="wan-spin" size={17} /> Rendering episode…</> : <><Download size={17} /> Export &amp; download video</>}</button>
