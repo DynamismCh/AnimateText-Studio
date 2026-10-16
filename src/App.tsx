@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Bug, Download, Film, ImagePlus, LoaderCircle, MessageCircle, Play, Send, Trash2, WandSparkles } from 'lucide-react';
 import AudioWorkshop from './components/AudioWorkshop';
-import SceneStudio from './components/SceneStudio';
 import { deleteSavedCharacter, loadSavedCharacters, saveCharacterImage, type LocalCharacter } from './lib/localCharacters';
 
 const SPACE = 'zerogpu-aoti/wan2-2-fp8da-aoti-faster';
@@ -43,9 +42,8 @@ export default function App() {
   const [selectedId, setSelectedId] = useState('');
   const [prompt, setPrompt] = useState('A friendly cartoon character walks naturally, turns toward the camera, smiles and waves. Keep the original character design, colours and proportions consistent. Smooth full-body movement, stable camera, cheerful children’s animation.');
   const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState('Upload a character, describe its movement, then generate a short video with WAN 2.2.');
+  const [status, setStatus] = useState('Upload a character, describe the scene and movement, then generate an AI-animated video.');
   const [videoUrl, setVideoUrl] = useState('');
-  const [generatedDialogueUrl, setGeneratedDialogueUrl] = useState('');
   const [downloadBusy, setDownloadBusy] = useState(false);
   const [assistantMessages, setAssistantMessages] = useState<AssistantMessage[]>([{ role: 'model', text: 'Hi! I can help with Sunny and Bloop stories, animation prompts, and troubleshooting. I receive the app status and any recorded error when you send a message.' }]);
   const [assistantInput, setAssistantInput] = useState('');
@@ -174,7 +172,7 @@ export default function App() {
       return;
     }
     if (!prompt.trim()) {
-      setStatus('Describe the movement you want first.');
+      setStatus('Describe the scene and movement you want first.');
       return;
     }
 
@@ -256,7 +254,7 @@ export default function App() {
   return (
     <div className="wan-app">
       <header className="wan-header">
-        <div className="wan-brand"><div className="wan-logo"><Film size={23} /></div><div><h1>AnimateText Studio</h1><p>WAN 2.2 character animation</p></div></div>
+        <div className="wan-brand"><div className="wan-logo"><Film size={23} /></div><div><h1>AnimateText Studio</h1><p>AI character video generator</p></div></div>
         <a href="https://huggingface.co/spaces/zerogpu-aoti/wan2-2-fp8da-aoti-faster" target="_blank" rel="noreferrer">Open original WAN 2.2 ↗</a>
       </header>
 
@@ -283,11 +281,11 @@ export default function App() {
           </div>
 
           <h2 className="wan-prompt-heading"><WandSparkles size={18} /> 2. Describe the movement</h2>
-          <label className="wan-label" htmlFor="motion-prompt">Motion prompt</label>
+          <label className="wan-label" htmlFor="motion-prompt">Scene and movement prompt</label>
           <textarea id="motion-prompt" value={prompt} onChange={(event) => setPrompt(event.target.value)} maxLength={1200} placeholder="Describe how your character should move…" />
-          <p className="wan-help">Tip: describe the action, facial expression, camera movement, and background. Keep the prompt focused on one simple action for the best chance of a clean short clip.</p>
+          <p className="wan-help">Describe the action, expression, camera, and background in one prompt. Important: this WAN connection animates an uploaded character image; it is not pure text-only video generation.</p>
           <button className="wan-generate" onClick={() => void generateVideo()} disabled={busy || !selectedId || !prompt.trim()}>
-            {busy ? <><LoaderCircle className="wan-spin" size={18} /> Generating with WAN 2.2…</> : <><WandSparkles size={18} /> Generate 3.5-second video</>}
+            {busy ? <><LoaderCircle className="wan-spin" size={18} /> Generating with WAN 2.2…</> : <><WandSparkles size={18} /> Generate AI video</>}
           </button>
           <p className="wan-status" aria-live="polite">{status}</p>
           <p className="wan-quota-note">WAN 2.2 uses a shared free GPU allowance. Each generation can use quota, so avoid repeated tests when the service reports a limit.</p>
@@ -311,11 +309,10 @@ export default function App() {
         </section>
       </main>
 
-      <SceneStudio characters={characters} generatedDialogueUrl={generatedDialogueUrl} />
+      <AudioWorkshop videoUrl={videoUrl} />
 
-      <AudioWorkshop videoUrl={videoUrl} onDialogueReady={setGeneratedDialogueUrl} />
-
-      <section className="wan-panel wan-assistant-panel">
+      <details className="wan-panel wan-assistant-panel">
+        <summary><MessageCircle size={18} /> Optional studio assistant and troubleshooting</summary>
         <div className="wan-assistant-heading">
           <div><h2><MessageCircle size={19} /> 5. Studio assistant</h2><p className="wan-help">Get help with Sunny and Bloop, scene ideas, movement prompts, and the latest app error.</p></div>
           <button className="wan-diagnostics" onClick={downloadDiagnostics} title="Download a report you can share when troubleshooting"><Bug size={16} /> Export diagnostics</button>
@@ -334,8 +331,8 @@ export default function App() {
           <button disabled={!lastError || assistantBusy} onClick={() => void sendAssistantMessage('Please diagnose this latest app error and give me the safest next steps: ' + lastError)}>Diagnose latest error</button>
         </div>
         <p className="wan-quota-note">The assistant uses a Gemini API key stored on the server. If it is not configured yet, it will explain the setup. Free-tier limits apply; do not share passwords or API keys in chat.</p>
-      </section>
-      <footer className="wan-footer">Built around the original public WAN 2.2 Fast Space. AnimateText Studio does not add paid video providers or install AI models on your laptop.</footer>
+      </details>
+      <footer className="wan-footer">AI video is generated by the connected WAN service. Voice generation stays in Audio Workshop. Free shared GPU limits still apply.</footer>
     </div>
   );
 }
