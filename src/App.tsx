@@ -168,8 +168,8 @@ export default function App() {
 
   async function generateVideo() {
     const character = characters.find((item) => item.id === selectedId);
-    if (!character) {
-      setStatus('Upload and select a character image first.');
+    if (!character && !LTX_API_URL) {
+      setStatus('Upload and select a character image first. Text-only generation requires the optional LTX service.');
       return;
     }
     if (!prompt.trim()) {
@@ -182,28 +182,31 @@ export default function App() {
     setStatus(LTX_API_URL ? 'Connecting to your LTX video service. This may take a few minutes; keep this tab open.' : 'Connecting directly to the official WAN 2.2 Fast Space. This may take a few minutes; keep this tab open.');
     try {
       if (LTX_API_URL) {
-        const imageResponse = await fetch(character.url);
-        if (!imageResponse.ok) throw new Error('Could not read the selected character image. Please upload it again.');
-        const imageBlob = await imageResponse.blob();
-        const imageBase64 = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
-          reader.onerror = () => reject(new Error('Could not prepare the character image for LTX.'));
-          reader.readAsDataURL(imageBlob);
-        });
-        setStatus('LTX is generating your short character video…');
+        const payload: Record<string, unknown> = {
+          prompt: prompt.trim().slice(0, 1200),
+          width: 384,
+          height: 256,
+          frames: 17,
+          fps: 8
+        };
+        if (character) {
+          const imageResponse = await fetch(character.url);
+          if (!imageResponse.ok) throw new Error('Could not read the selected character image. Please upload it again.');
+          const imageBlob = await imageResponse.blob();
+          const imageBase64 = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+            reader.onerror = () => reject(new Error('Could not prepare the character image for LTX.'));
+            reader.readAsDataURL(imageBlob);
+          });
+          payload.image_base64 = imageBase64;
+          payload.image_mime_type = imageBlob.type || 'image/png';
+        }
+        setStatus(character ? 'LTX is animating your character image…' : 'LTX is generating a video from your text prompt…');
         const response = await fetch(LTX_API_URL + '/api/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            prompt: prompt.trim().slice(0, 1200),
-            image_base64: imageBase64,
-            image_mime_type: imageBlob.type || 'image/png',
-            width: 384,
-            height: 256,
-            frames: 17,
-            fps: 8
-          })
+          body: JSON.stringify(payload)
         });
         const data: any = await response.json();
         if (!response.ok) throw new Error(data?.detail || data?.error || 'LTX could not generate this clip.');
