@@ -3,6 +3,7 @@ import { Bug, Download, Film, ImagePlus, LoaderCircle, MessageCircle, Play, Send
 import AudioWorkshop from './components/AudioWorkshop';
 import { deleteSavedCharacter, loadSavedCharacters, saveCharacterImage, type LocalCharacter } from './lib/localCharacters';
 
+const LTX_API_URL = (import.meta.env.VITE_LTX_API_URL || '').replace(/\\/+$/, '');
 const SPACE = 'zerogpu-aoti/wan2-2-fp8da-aoti-faster';
 const SPACE_URL = 'https://zerogpu-aoti-wan2-2-fp8da-aoti-faster.hf.space';
 const NEGATIVE_PROMPT = 'blurry, distorted body, extra limbs, flicker, text, watermark, static image';
@@ -178,8 +179,41 @@ export default function App() {
 
     setBusy(true);
     setVideoUrl('');
-    setStatus('Connecting directly to the official WAN 2.2 Fast Space. This may take a few minutes; keep this tab open.');
+    setStatus(LTX_API_URL ? 'Connecting to your LTX video service. This may take a few minutes; keep this tab open.' : 'Connecting directly to the official WAN 2.2 Fast Space. This may take a few minutes; keep this tab open.');
     try {
+      if (LTX_API_URL) {
+        const imageResponse = await fetch(character.url);
+        if (!imageResponse.ok) throw new Error('Could not read the selected character image. Please upload it again.');
+        const imageBlob = await imageResponse.blob();
+        const imageBase64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+          reader.onerror = () => reject(new Error('Could not prepare the character image for LTX.'));
+          reader.readAsDataURL(imageBlob);
+        });
+        setStatus('LTX is generating your short character video…');
+        const response = await fetch(LTX_API_URL + '/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: prompt.trim().slice(0, 1200),
+            image_base64: imageBase64,
+            image_mime_type: imageBlob.type || 'image/png',
+            width: 384,
+            height: 256,
+            frames: 17,
+            fps: 8
+          })
+        });
+        const data: any = await response.json();
+        if (!response.ok) throw new Error(data?.detail || data?.error || 'LTX could not generate this clip.');
+        if (!data?.video_url) throw new Error('LTX finished but did not return a video URL.');
+        setVideoUrl(new URL(data.video_url, LTX_API_URL).toString());
+        setLastError('');
+        setStatus('LTX video generated. Play it below and save it to your device.');
+        return;
+      }
+
       const imageResponse = await fetch(character.url);
       if (!imageResponse.ok) throw new Error('Could not read the selected character image. Please upload it again.');
       const imageBlob = await imageResponse.blob();
@@ -219,7 +253,7 @@ export default function App() {
       if (lower.includes('quota') || lower.includes('zero gpu') || lower.includes('daily') || lower.includes('rate limit')) {
         setStatus('WAN 2.2 free GPU quota or rate limit reached. Your prompt and character are safe; wait for the allowance to reset before trying again. Details: ' + detail);
       } else {
-        setStatus('WAN 2.2 could not generate the clip. Check whether the original Space is available and whether your free allowance has reset. Details: ' + detail);
+        setStatus((LTX_API_URL ? 'LTX could not generate the clip. Check that the LTX GPU service is running and its model dependencies are installed. Details: ' : 'WAN 2.2 could not generate the clip. Check whether the original Space is available and whether your free allowance has reset. Details: ') + detail);
       }
     } finally {
       setBusy(false);
