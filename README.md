@@ -37,6 +37,12 @@ Uploaded characters and generated SVG scenes are stored in the local `data/` fol
 
 When the backend is running, visit `http://localhost:8787/api/health`. A healthy server returns JSON with `ok: true`.
 
+## Optional LTX-Video GPU service
+
+An experimental adapter now lives in `backend/ltx-video-lite/`. It wraps the official Lightricks LTX-Video inference package and exposes `POST /api/generate` for short text-to-video or image-to-video clips. The frontend can use it when `VITE_LTX_API_URL` points to a running GPU service; if that variable is blank, the current WAN 2.2 image-to-video route remains active.
+
+Read [the LTX Lite setup guide](backend/ltx-video-lite/README.md) before running it. The adapter is committed, but it has **not yet been verified end-to-end on a GPU**. It requires a separate GPU host and downloads model weights on first use; it does not make generation free or practical on the 4 GB Celeron laptop. Do not commit model weights or character uploads.
+
 ## Frontend
 
 - React + TypeScript + Vite
