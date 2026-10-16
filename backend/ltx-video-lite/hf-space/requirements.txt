@@ -1,0 +1,5 @@
+gradio==5.34.2
+spaces
+pillow>=10,<13
+# Use official LTX inference source at a pinned revision.
+git+https://github.com/Lightricks/LTX-Video.git@4b2d053057623ddd4d0a1d3e9cd28890e9ef487f
