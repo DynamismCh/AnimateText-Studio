@@ -4,7 +4,7 @@ import type { LocalCharacter } from '../lib/localCharacters';
 import { getMotionFrame } from '../lib/lightweightMotionEngine';
 
 type Action = 'walk' | 'run' | 'jump' | 'wave' | 'dance' | 'talk';
-type Scene = { id: number; text: string; action: Action; background: number };
+type Scene = { id: number; text: string; action: Action; background: number; duration: number };
 const backgrounds = [
   { sky: '#8ed8ff', ground: '#83d878' }, { sky: '#ffc7e5', ground: '#f4a8c7' },
   { sky: '#70d9ef', ground: '#229fc2' }, { sky: '#25305f', ground: '#404a80' },
@@ -22,7 +22,7 @@ function actionFor(text: string): Action {
 }
 function makeScenes(story: string): Scene[] {
   return story.split(/(?<=[.!?])\s+|\n+/).map((text) => text.trim()).filter(Boolean).slice(0, 6)
-    .map((text, index) => ({ id: index + 1, text, action: actionFor(text), background: index % backgrounds.length }));
+    .map((text, index) => ({ id: index + 1, text, action: actionFor(text), background: index % backgrounds.length, duration: 4 }));
 }
 
 export default function SceneStudio({ characters }: { characters: LocalCharacter[] }) {
@@ -62,10 +62,11 @@ export default function SceneStudio({ characters }: { characters: LocalCharacter
     if (!canvas || !ctx) return;
     const w = canvas.width, h = canvas.height, list = scenesRef.current;
     const elapsed = staticFrame ? 0 : Math.max(0, (time - startRef.current) / 1000);
-    const duration = 4, total = Math.max(1, list.length) * duration;
-    const pos = elapsed % total, index = Math.min(Math.max(0, list.length - 1), Math.floor(pos / duration));
-    const t = (pos % duration) / duration;
-    const scene = list[index] || { id: 1, text: 'Add a story to begin.', action: 'talk' as Action, background: 0 };
+    const total = Math.max(1, list.reduce((sum, item) => sum + item.duration, 0));
+    let pos = elapsed % total, index = 0;
+    while (index < list.length - 1 && pos >= list[index].duration) { pos -= list[index].duration; index++; }
+    const scene = list[index] || { id: 1, text: 'Add a story to begin.', action: 'talk' as Action, background: 0, duration: 4 };
+    const t = Math.min(1, pos / Math.max(1, scene.duration));
     const bg = backgrounds[scene.background] || backgrounds[0];
     const gradient = ctx.createLinearGradient(0, 0, 0, h);
     gradient.addColorStop(0, bg.sky); gradient.addColorStop(1, bg.ground);
@@ -155,7 +156,7 @@ export default function SceneStudio({ characters }: { characters: LocalCharacter
       const response = await fetch('/api/assistant', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: [{ role: 'user', text: 'Turn this children’s animation story into a JSON array of 1 to 6 scenes. Return ONLY valid JSON, no markdown. Each object must have text (short scene action/dialogue based on the story), action (exactly one of walk, run, jump, wave, dance, talk), and background (integer 0 to 4). Keep it child-friendly and do not add characters. Story: ' + story.slice(0, 2200) }],
+          messages: [{ role: 'user', text: 'Turn this children’s animation story into a JSON array of 1 to 6 scenes. Return ONLY valid JSON, no markdown. Each object must have text (short scene action/dialogue based on the story), action (exactly one of walk, run, jump, wave, dance, talk), background (integer 0 to 4), and duration (number of seconds from 2 to 10). Keep it child-friendly and do not add characters. Story: ' + story.slice(0, 2200) }],
           context: { status: 'Creating a local scene plan', selectedCharacterName: 'Sunny and Bloop', videoReady: false }
         })
       });
@@ -170,6 +171,7 @@ export default function SceneStudio({ characters }: { characters: LocalCharacter
         id: index + 1, text: item.text.trim().slice(0, 220),
         action: allowed.includes(item.action) ? item.action : actionFor(item.text),
         background: Number.isInteger(item.background) ? Math.max(0, Math.min(4, item.background)) : index % backgrounds.length,
+        duration: Number.isFinite(item.duration) ? Math.max(2, Math.min(10, Number(item.duration))) : 4,
       }));
       if (!aiScenes.length) throw new Error('The AI planner did not return any usable scenes.');
       setScenes(aiScenes); scenesRef.current = aiScenes; setSceneIndex(0);
@@ -203,7 +205,8 @@ export default function SceneStudio({ characters }: { characters: LocalCharacter
         recorder.onerror = () => reject(new Error('Browser video encoding failed. Try fewer scenes.'));
       });
       startRef.current = performance.now(); recorder.start(250);
-      await new Promise((resolve) => window.setTimeout(resolve, Math.min(scenes.length * 4000, 24000)));
+      const exportDurationMs = Math.min(scenes.reduce((sum, scene) => sum + scene.duration, 0) * 1000, 60000);
+      await new Promise((resolve) => window.setTimeout(resolve, exportDurationMs));
       exportingRef.current = false; if (recorder.state !== 'inactive') recorder.stop();
       const blob = await stopped, url = URL.createObjectURL(blob);
       setExportUrl((old) => { if (old) URL.revokeObjectURL(old); return url; });
@@ -228,7 +231,7 @@ export default function SceneStudio({ characters }: { characters: LocalCharacter
         <p className="wan-status" aria-live="polite">{status}</p><p className="wan-help">Transparent character images work best. Rendering uses your computer, so keep scenes short on low-memory laptops.</p>
       </div>
       <div className="scene-studio-preview"><canvas ref={canvasRef} width={800} height={450} aria-label="Local animated episode preview" />
-        <div className="scene-studio-scene-list">{scenes.map((scene, index) => <div className={'scene-studio-scene ' + (index === sceneIndex ? 'active' : '')} key={scene.id}><strong>Scene {index + 1} · {scene.action}</strong><span>{scene.text}</span></div>)}</div>
+        <div className="scene-studio-scene-list">{scenes.map((scene, index) => <div className={'scene-studio-scene ' + (index === sceneIndex ? 'active' : '')} key={scene.id}><strong>Scene {index + 1}</strong><span>{scene.text}</span><div className="scene-studio-scene-edit"><label>Action <select aria-label={'Action for scene ' + (index + 1)} value={scene.action} onChange={(e) => setScenes((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, action: e.target.value as Action } : item))}>{(['walk','run','jump','wave','dance','talk'] as Action[]).map((action) => <option key={action} value={action}>{action}</option>)}</select></label><label>Seconds <select aria-label={'Duration for scene ' + (index + 1)} value={scene.duration} onChange={(e) => setScenes((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, duration: Number(e.target.value) } : item))}>{[2,3,4,5,6,8,10].map((seconds) => <option key={seconds} value={seconds}>{seconds}s</option>)}</select></label></div></div>)}</div>
         {exportUrl && <div className="scene-studio-export"><strong>Last exported video</strong><video controls playsInline src={exportUrl} /><a href={exportUrl} download={(title || 'episode') + '.webm'}>Download again</a></div>}
       </div>
     </div>
