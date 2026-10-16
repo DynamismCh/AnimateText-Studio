@@ -3,7 +3,7 @@ import { Bug, Download, Film, ImagePlus, LoaderCircle, MessageCircle, Play, Send
 import AudioWorkshop from './components/AudioWorkshop';
 import { deleteSavedCharacter, loadSavedCharacters, saveCharacterImage, type LocalCharacter } from './lib/localCharacters';
 
-const LTX_API_URL = (import.meta.env.VITE_LTX_API_URL || '').replace(/\\/+$/, '');
+const LTX_API_URL = (import.meta.env.VITE_LTX_API_URL || '').replace(new RegExp('/+$'), '');
 const SPACE = 'zerogpu-aoti/wan2-2-fp8da-aoti-faster';
 const SPACE_URL = 'https://zerogpu-aoti-wan2-2-fp8da-aoti-faster.hf.space';
 const NEGATIVE_PROMPT = 'blurry, distorted body, extra limbs, flicker, text, watermark, static image';
