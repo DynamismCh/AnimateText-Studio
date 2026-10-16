@@ -127,3 +127,8 @@ button:disabled{cursor:not-allowed;opacity:.55}
 .scene-studio-script-label{display:grid;gap:5px;margin-top:4px;color:#94a3b8;font-size:10px}
 .scene-studio-script-label textarea{width:100%;min-height:54px;padding:8px;border:1px solid #303a54;border-radius:8px;background:#080e1c;color:#f8fafc;font:inherit;font-size:11px;line-height:1.5;resize:vertical}
 .scene-studio-scene-edit .scene-studio-background-label{grid-column:1/-1}
+
+.scene-studio-audio{display:grid;gap:8px;margin-top:12px;padding:12px;border:1px solid #34315e;border-radius:12px;background:#101426}
+.scene-studio-audio>strong{display:flex;align-items:center;gap:7px;color:#ddd6fe;font-size:12px;margin-bottom:3px}
+.scene-studio-audio .wan-upload{font-size:11px;padding:9px;overflow-wrap:anywhere}
+.scene-studio-audio audio{display:block;width:100%;min-width:0;height:34px}
