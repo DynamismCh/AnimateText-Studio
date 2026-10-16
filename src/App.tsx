@@ -45,6 +45,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('Upload a character, describe its movement, then generate a short video with WAN 2.2.');
   const [videoUrl, setVideoUrl] = useState('');
+  const [generatedDialogueUrl, setGeneratedDialogueUrl] = useState('');
   const [downloadBusy, setDownloadBusy] = useState(false);
   const [assistantMessages, setAssistantMessages] = useState<AssistantMessage[]>([{ role: 'model', text: 'Hi! I can help with Sunny and Bloop stories, animation prompts, and troubleshooting. I receive the app status and any recorded error when you send a message.' }]);
   const [assistantInput, setAssistantInput] = useState('');
@@ -310,9 +311,9 @@ export default function App() {
         </section>
       </main>
 
-      <SceneStudio characters={characters} />
+      <SceneStudio characters={characters} generatedDialogueUrl={generatedDialogueUrl} />
 
-      <AudioWorkshop videoUrl={videoUrl} />
+      <AudioWorkshop videoUrl={videoUrl} onDialogueReady={setGeneratedDialogueUrl} />
 
       <section className="wan-panel wan-assistant-panel">
         <div className="wan-assistant-heading">
