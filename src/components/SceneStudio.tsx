@@ -31,6 +31,7 @@ export default function SceneStudio({ characters }: { characters: LocalCharacter
   const activeRef = useRef(false);
   const exportingRef = useRef(false);
   const startRef = useRef(0);
+  const lastSceneIndexRef = useRef(-1);
   const [title, setTitle] = useState('Sunny and Bloop: A Little Adventure');
   const [story, setStory] = useState(starter);
   const [scenes, setScenes] = useState<Scene[]>(() => makeScenes(starter));
@@ -48,7 +49,7 @@ export default function SceneStudio({ characters }: { characters: LocalCharacter
     setSecondary((current) => characters.some((c) => c.id === current) ? current : (characters[1]?.id || characters[0]?.id || ''));
     characters.forEach((character) => {
       if (!imagesRef.current.has(character.id)) {
-        const image = new Image(); image.src = character.url; imagesRef.current.set(character.id, image);
+        const image = new Image(); image.onload = () => window.requestAnimationFrame(() => draw(0, true)); image.src = character.url; imagesRef.current.set(character.id, image);
       }
     });
   }, [characters]);
@@ -88,7 +89,7 @@ export default function SceneStudio({ characters }: { characters: LocalCharacter
     const subtitle = scene.text.length > 76 ? scene.text.slice(0, 73) + '…' : scene.text;
     ctx.fillText(subtitle, w / 2, h - 39, w - 54);
     ctx.font = '12px system-ui,sans-serif'; ctx.textAlign = 'right'; ctx.fillText('SCENE ' + (index + 1) + ' / ' + list.length, w - 20, 24);
-    if (!staticFrame) setSceneIndex(index);
+    if (!staticFrame && lastSceneIndexRef.current !== index) { lastSceneIndexRef.current = index; setSceneIndex(index); }
   }
 
   useEffect(() => {
