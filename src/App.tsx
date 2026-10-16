@@ -274,7 +274,7 @@ export default function App() {
       const objectUrl = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = objectUrl;
-      link.download = 'wan2-2-generated-video.mp4';
+      link.download = 'animatetext-generated-video.mp4';
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -320,9 +320,9 @@ export default function App() {
           <h2 className="wan-prompt-heading"><WandSparkles size={18} /> 2. Describe the movement</h2>
           <label className="wan-label" htmlFor="motion-prompt">Scene and movement prompt</label>
           <textarea id="motion-prompt" value={prompt} onChange={(event) => setPrompt(event.target.value)} maxLength={1200} placeholder="Describe how your character should move…" />
-          <p className="wan-help">Describe the action, expression, camera, and background in one prompt. Important: this WAN connection animates an uploaded character image; it is not pure text-only video generation.</p>
-          <button className="wan-generate" onClick={() => void generateVideo()} disabled={busy || !selectedId || !prompt.trim()}>
-            {busy ? <><LoaderCircle className="wan-spin" size={18} /> Generating with WAN 2.2…</> : <><WandSparkles size={18} /> Generate AI video</>}
+          <p className="wan-help">Describe the action, expression, camera, and background in one prompt. With the optional LTX service connected, you can generate from text alone or animate an uploaded character image. Without it, the WAN connection requires an uploaded image.</p>
+          <button className="wan-generate" onClick={() => void generateVideo()} disabled={busy || (!selectedId && !LTX_API_URL) || !prompt.trim()}>
+            {busy ? <><LoaderCircle className="wan-spin" size={18} /> Generating video…</> : <><WandSparkles size={18} /> Generate AI video</>}
           </button>
           <p className="wan-status" aria-live="polite">{status}</p>
           <p className="wan-quota-note">WAN 2.2 uses a shared free GPU allowance. Each generation can use quota, so avoid repeated tests when the service reports a limit.</p>
