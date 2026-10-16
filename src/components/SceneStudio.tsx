@@ -25,7 +25,7 @@ function makeScenes(story: string): Scene[] {
     .map((text, index) => ({ id: index + 1, text, action: actionFor(text), background: index % backgrounds.length, duration: 4 }));
 }
 
-export default function SceneStudio({ characters }: { characters: LocalCharacter[] }) {
+export default function SceneStudio({ characters, generatedDialogueUrl }: { characters: LocalCharacter[]; generatedDialogueUrl: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imagesRef = useRef(new Map<string, HTMLImageElement>());
   const scenesRef = useRef<Scene[]>(makeScenes(starter));
@@ -44,10 +44,8 @@ export default function SceneStudio({ characters }: { characters: LocalCharacter
   const [sceneIndex, setSceneIndex] = useState(0);
   const [status, setStatus] = useState('Write a short story, build scenes, preview, then export a video directly to your device.');
   const [exportUrl, setExportUrl] = useState('');
-  const [dialogueUrl, setDialogueUrl] = useState('');
   const [musicUrl, setMusicUrl] = useState('');
   const [effectsUrl, setEffectsUrl] = useState('');
-  const [dialogueName, setDialogueName] = useState('');
   const [musicName, setMusicName] = useState('');
   const [effectsName, setEffectsName] = useState('');
   const dialogueRef = useRef('');
@@ -64,13 +62,12 @@ export default function SceneStudio({ characters }: { characters: LocalCharacter
       }
     });
   }, [characters]);
-  useEffect(() => () => { activeRef.current = false; exportingRef.current = false; [exportUrl, dialogueRef.current, musicRef.current, effectsRef.current].forEach((url) => { if (url) URL.revokeObjectURL(url); }); }, [exportUrl]);
+  useEffect(() => () => { activeRef.current = false; exportingRef.current = false; [exportUrl, musicRef.current, effectsRef.current].forEach((url) => { if (url) URL.revokeObjectURL(url); }); }, [exportUrl]);
 
   function loadAudio(file: File | undefined, kind: 'dialogue' | 'music' | 'effects') {
     if (!file) return;
     if (!file.type.startsWith('audio/')) { setStatus('Please choose an audio file such as WAV, MP3, or OGG.'); return; }
     const url = URL.createObjectURL(file);
-    if (kind === 'dialogue') { if (dialogueRef.current) URL.revokeObjectURL(dialogueRef.current); dialogueRef.current = url; setDialogueUrl(url); setDialogueName(file.name); }
     if (kind === 'music') { if (musicRef.current) URL.revokeObjectURL(musicRef.current); musicRef.current = url; setMusicUrl(url); setMusicName(file.name); }
     if (kind === 'effects') { if (effectsRef.current) URL.revokeObjectURL(effectsRef.current); effectsRef.current = url; setEffectsUrl(url); setEffectsName(file.name); }
     setStatus('Audio track loaded locally. It will be included when you export the episode.');
@@ -219,7 +216,7 @@ export default function SceneStudio({ characters }: { characters: LocalCharacter
     const audioElements: HTMLAudioElement[] = [];
     try {
       const mime = ['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'].find((type) => MediaRecorder.isTypeSupported(type)) || '';
-      const audioTracks = [dialogueUrl ? { url: dialogueUrl, volume: 1, loop: false } : null, musicUrl ? { url: musicUrl, volume: 0.18, loop: true } : null, effectsUrl ? { url: effectsUrl, volume: 0.32, loop: true } : null].filter((track): track is { url: string; volume: number; loop: boolean } => Boolean(track));
+      const audioTracks = [generatedDialogueUrl ? { url: generatedDialogueUrl, volume: 1, loop: false } : null, musicUrl ? { url: musicUrl, volume: 0.18, loop: true } : null, effectsUrl ? { url: effectsUrl, volume: 0.32, loop: true } : null].filter((track): track is { url: string; volume: number; loop: boolean } => Boolean(track));
       if (audioTracks.length) {
         audioContext = new AudioContext();
         const destination = audioContext.createMediaStreamDestination();
@@ -261,13 +258,13 @@ export default function SceneStudio({ characters }: { characters: LocalCharacter
         <label className="wan-label" htmlFor="scene-secondary">Second character</label><select id="scene-secondary" value={secondary} onChange={(e) => setSecondary(e.target.value)} disabled={!characters.length}>{characters.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
         <div className="scene-studio-audio">
           <strong><AudioLines size={15} /> Audio tracks for this episode</strong>
-          <label className="wan-upload"><Upload size={15} /> {dialogueName || 'Add dialogue / voice track'}<input type="file" accept="audio/*" onChange={(e) => { loadAudio(e.target.files?.[0], 'dialogue'); e.currentTarget.value = ''; }} /></label>
+          <p className="wan-help">Dialogue comes directly from Audio Workshop below. Generate Sunny and Bloop’s AI voices there first, then export your episode here.</p>
+          {generatedDialogueUrl && <audio controls preload="metadata" src={generatedDialogueUrl} />}
           <label className="wan-upload"><Music2 size={15} /> {musicName || 'Add background music'}<input type="file" accept="audio/*" onChange={(e) => { loadAudio(e.target.files?.[0], 'music'); e.currentTarget.value = ''; }} /></label>
           <label className="wan-upload"><AudioLines size={15} /> {effectsName || 'Add sound effects'}<input type="file" accept="audio/*" onChange={(e) => { loadAudio(e.target.files?.[0], 'effects'); e.currentTarget.value = ''; }} /></label>
-          {dialogueUrl && <audio controls preload="metadata" src={dialogueUrl} />}
           {musicUrl && <audio controls preload="metadata" src={musicUrl} />}
           {effectsUrl && <audio controls preload="metadata" src={effectsUrl} />}
-          <p className="wan-help">Dialogue plays once; music and effects loop quietly during the episode. Use audio you own or have permission to use.</p>
+          <p className="wan-help">AI dialogue from Audio Workshop plays once; music and effects loop quietly during the episode. Use audio you own or have permission to use.</p>
         </div>
         <button className="wan-download" onClick={() => void exportVideo()} disabled={exporting || !characters.length}>{exporting ? <><LoaderCircle className="wan-spin" size={17} /> Rendering episode…</> : <><Download size={17} /> Export &amp; download video</>}</button>
         <p className="wan-status" aria-live="polite">{status}</p><p className="wan-help">Transparent character images work best. Rendering uses your computer, so keep scenes short on low-memory laptops.</p>
