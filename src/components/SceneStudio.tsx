@@ -213,7 +213,10 @@ export default function SceneStudio({ characters }: { characters: LocalCharacter
     if (!scenes.length) { setStatus('Build scenes from your story first.'); return; }
     activeRef.current = false; setPreviewing(false); exportingRef.current = true; setExporting(true);
     setStatus('Rendering locally. Keep this tab open until the video downloads…');
-    const stream = canvas.captureStream(24);
+    const canvasStream = canvas.captureStream(24);
+    let stream: MediaStream = canvasStream;
+    let audioContext: AudioContext | undefined;
+    const audioElements: HTMLAudioElement[] = [];
     try {
       const mime = ['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'].find((type) => MediaRecorder.isTypeSupported(type)) || '';
       const audioTracks = [dialogueUrl ? { url: dialogueUrl, volume: 1, loop: false } : null, musicUrl ? { url: musicUrl, volume: 0.18, loop: true } : null, effectsUrl ? { url: effectsUrl, volume: 0.32, loop: true } : null].filter((track): track is { url: string; volume: number; loop: boolean } => Boolean(track));
@@ -231,7 +234,9 @@ export default function SceneStudio({ characters }: { characters: LocalCharacter
         recorder.onstop = () => { const blob = new Blob(chunks, { type: recorder.mimeType || 'video/webm' }); blob.size ? resolve(blob) : reject(new Error('The exported video was empty. Try again.')); };
         recorder.onerror = () => reject(new Error('Browser video encoding failed. Try fewer scenes.'));
       });
-      startRef.current = performance.now();\n      audioElements.forEach((audio) => { audio.currentTime = 0; void audio.play().catch(() => setStatus('A track could not start. Check the audio file format and try again.')); });\n      recorder.start(250);
+      startRef.current = performance.now();
+      audioElements.forEach((audio) => { audio.currentTime = 0; void audio.play().catch(() => setStatus('A track could not start. Check the audio file format and try again.')); });
+      recorder.start(250);
       const exportDurationMs = Math.min(scenes.reduce((sum, scene) => sum + scene.duration, 0) * 1000, 60000);
       await new Promise((resolve) => window.setTimeout(resolve, exportDurationMs));
       exportingRef.current = false; if (recorder.state !== 'inactive') recorder.stop();
