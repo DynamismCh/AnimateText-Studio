@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Download, Film, LoaderCircle, WandSparkles } from 'lucide-react';
 import type { LocalCharacter } from '../lib/localCharacters';
+import { getMotionFrame } from '../lib/lightweightMotionEngine';
 
 type Action = 'walk' | 'run' | 'jump' | 'wave' | 'dance' | 'talk';
 type Scene = { id: number; text: string; action: Action; background: number };
@@ -76,14 +77,56 @@ export default function SceneStudio({ characters }: { characters: LocalCharacter
     const ids = [primary, secondary].filter((id, i, all) => id && all.indexOf(id) === i).slice(0, 2);
     ids.forEach((id, i) => {
       const image = imagesRef.current.get(id); if (!image?.complete || !image.naturalWidth) return;
-      let x = i === 0 ? w * .34 : w * .66, bob = Math.sin(t * Math.PI * 4 + i) * 4;
-      if (scene.action === 'walk' || scene.action === 'run') x += Math.sin(t * Math.PI * 2) * (scene.action === 'run' ? 38 : 18) * (i === 0 ? 1 : -1);
-      if (scene.action === 'jump') bob -= Math.abs(Math.sin(t * Math.PI * 2)) * 48;
-      if (scene.action === 'dance') { bob -= Math.abs(Math.sin(t * Math.PI * 4)) * 20; x += Math.sin(t * Math.PI * 4 + i) * 18; }
-      const scale = Math.min(w * .24 / image.naturalWidth, h * .58 / image.naturalHeight), iw = image.naturalWidth * scale, ih = image.naturalHeight * scale;
-      ctx.save(); if (scene.action === 'wave') ctx.rotate(Math.sin(t * Math.PI * 6) * .035);
-      ctx.drawImage(image, x - iw / 2, h * .68 - ih + bob, iw, ih); ctx.restore();
-      if (scene.action === 'run') { ctx.strokeStyle = 'rgba(255,255,255,.8)'; ctx.lineWidth = 3; for (let m = 0; m < 3; m++) { ctx.beginPath(); ctx.moveTo(x - iw * .45 - m * 9, h * .68 - 20 - m * 10); ctx.lineTo(x - iw * .45 - 14 - m * 9, h * .68 - 20 - m * 10); ctx.stroke(); } }
+      const motion = getMotionFrame(scene.action, t, i);
+      const centerX = (i === 0 ? w * .34 : w * .66) + motion.x;
+      const baseY = h * .68;
+      const bob = motion.y;
+      const scale = Math.min(w * .24 / image.naturalWidth, h * .58 / image.naturalHeight);
+      const iw = image.naturalWidth * scale, ih = image.naturalHeight * scale;
+
+      // Ground shadow makes jumps and hops easier to read without a GPU model.
+      ctx.save();
+      ctx.fillStyle = 'rgba(24,45,48,.2)';
+      ctx.beginPath();
+      ctx.ellipse(centerX, baseY + 4, Math.max(12, iw * .28 * motion.shadowScale), Math.max(3, ih * .025), 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      if (motion.speedLines) {
+        ctx.save(); ctx.strokeStyle = 'rgba(255,255,255,.78)'; ctx.lineWidth = 3;
+        for (let m = 0; m < 3; m++) {
+          const lineY = baseY - 24 - m * 14 + Math.sin(t * Math.PI * 8 + m) * 3;
+          ctx.beginPath(); ctx.moveTo(centerX - iw * .52 - m * 8, lineY); ctx.lineTo(centerX - iw * .52 - 18 - m * 8, lineY); ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+      ctx.save();
+      ctx.translate(centerX, baseY + bob);
+      ctx.rotate(motion.rotation);
+      ctx.scale(motion.scaleX, motion.scaleY);
+      ctx.drawImage(image, -iw / 2, -ih, iw, ih);
+      ctx.restore();
+
+      if (motion.sparkles) {
+        ctx.save(); ctx.fillStyle = '#fff5a6';
+        for (let s = 0; s < 3; s++) {
+          const sparkleX = centerX + Math.sin(t * Math.PI * 4 + s * 2.1) * (iw * .42);
+          const sparkleY = baseY - ih * (.72 + (s % 2) * .13) + Math.cos(t * Math.PI * 4 + s) * 8 + bob;
+          ctx.beginPath(); ctx.arc(sparkleX, sparkleY, 3 + (s % 2), 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.restore();
+      }
+
+      if (scene.action === 'talk' && motion.interaction > 0.35 && i === (Math.floor(t * 2) % Math.max(1, ids.length))) {
+        const bubbleX = centerX + (i === 0 ? iw * .25 : -iw * .25);
+        const bubbleY = baseY - ih - 24 + bob;
+        ctx.save(); ctx.fillStyle = 'rgba(255,255,255,.94)';
+        ctx.beginPath(); ctx.ellipse(bubbleX, bubbleY, 19, 12, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#44536a';
+        for (let dot = 0; dot < 3; dot++) { ctx.beginPath(); ctx.arc(bubbleX - 7 + dot * 7, bubbleY, 2, 0, Math.PI * 2); ctx.fill(); }
+        ctx.restore();
+      }
     });
     ctx.fillStyle = 'rgba(13,22,43,.78)'; ctx.fillRect(18, h - 68, w - 36, 48);
     ctx.fillStyle = '#fff'; ctx.font = 'bold 18px system-ui,sans-serif'; ctx.textAlign = 'center';
