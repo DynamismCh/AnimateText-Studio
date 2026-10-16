@@ -1,5 +1,0 @@
-fastapi>=0.115,<1
-uvicorn[standard]>=0.30,<1
-pillow>=10,<13
-# Official LTX-Video inference package and source:
-git+https://github.com/Lightricks/LTX-Video.git@4b2d053057623ddd4d0a1d3e9cd28890e9ef487f
