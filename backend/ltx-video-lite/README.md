@@ -56,5 +56,5 @@ Omit `image_base64` for text-to-video. Include it for image-to-video. A successf
 
 - Adapter code in this folder is newly written for AnimateText Studio.
 - LTX-Video source code is licensed under Apache-2.0; consult the upstream license for attribution and redistribution requirements: https://github.com/Lightricks/LTX-Video/blob/main/LICENSE
-- Model weights have separate terms from the source-code license. Review the model card and applicable weight license before downloading or redistributing weights: https://huggingface.co/Lightricks/LTX-Video
+- Model weights have separate terms from the source-code license. The 0.9.8 weights use the [LTX-Video Open Weights License 0.X](https://huggingface.co/Lightricks/LTX-Video/blob/main/LTX-Video-Open-Weights-License-0.X.txt); review its use restrictions before use or redistribution. The license is royalty-free for permitted use, but it includes specific prohibited uses and redistribution obligations.
 - Do not upload model weights or character images to this Git repository.
