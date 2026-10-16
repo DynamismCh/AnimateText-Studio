@@ -3,40 +3,9 @@ import { Bug, Download, Film, ImagePlus, LoaderCircle, MessageCircle, Play, Send
 import AudioWorkshop from './components/AudioWorkshop';
 import { deleteSavedCharacter, loadSavedCharacters, saveCharacterImage, type LocalCharacter } from './lib/localCharacters';
 
-const LTX_API_URL = (import.meta.env.VITE_LTX_API_URL || '').replace(new RegExp('/+$'), '');
-const SPACE = 'zerogpu-aoti/wan2-2-fp8da-aoti-faster';
-const SPACE_URL = 'https://zerogpu-aoti-wan2-2-fp8da-aoti-faster.hf.space';
-const NEGATIVE_PROMPT = 'blurry, distorted body, extra limbs, flicker, text, watermark, static image';
+const WAN21_API_URL = (import.meta.env.VITE_WAN21_API_URL || '').replace(/\/+$/, '');
 type AssistantMessage = { role: 'user' | 'model'; text: string };
 type DiagnosticEntry = { time: string; message: string };
-
-function findVideo(value: any): string {
-  if (!value) return '';
-  if (typeof value === 'string') {
-    if (/^https?:\/\//i.test(value)) return value;
-    if (value.startsWith('/')) return SPACE_URL + value;
-    return '';
-  }
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      const found = findVideo(item);
-      if (found) return found;
-    }
-    return '';
-  }
-  if (typeof value === 'object') {
-    if (typeof value.url === 'string' && value.url) {
-      return value.url.startsWith('/') ? SPACE_URL + value.url : value.url;
-    }
-    for (const key of ['video', 'output', 'data', 'value', 'files', 'path']) {
-      if (key in value) {
-        const found = findVideo(value[key]);
-        if (found) return found;
-      }
-    }
-  }
-  return '';
-}
 
 export default function App() {
   const [characters, setCharacters] = useState<LocalCharacter[]>([]);
@@ -168,8 +137,12 @@ export default function App() {
 
   async function generateVideo() {
     const character = characters.find((item) => item.id === selectedId);
-    if (!character && !LTX_API_URL) {
-      setStatus('Upload and select a character image first. Text-only generation requires the optional LTX service.');
+    if (!WAN21_API_URL) {
+      setStatus('Wan2.1 VACE is not connected yet. Start the Kaggle GPU service and set VITE_WAN21_API_URL to its public URL.');
+      return;
+    }
+    if (!character) {
+      setStatus('Upload and select a character image first so Wan2.1 VACE can use it as a reference.');
       return;
     }
     if (!prompt.trim()) {
@@ -179,85 +152,41 @@ export default function App() {
 
     setBusy(true);
     setVideoUrl('');
-    setStatus(LTX_API_URL ? 'Connecting to your LTX video service. This may take a few minutes; keep this tab open.' : 'Connecting directly to the official WAN 2.2 Fast Space. This may take a few minutes; keep this tab open.');
+    setLastError('');
+    setStatus('Sending your character and scene prompt to the Wan2.1 VACE GPU service. Keep this tab open; generation may take several minutes.');
     try {
-      if (LTX_API_URL) {
-        const payload: Record<string, unknown> = {
-          prompt: prompt.trim().slice(0, 1200),
-          width: 384,
-          height: 256,
-          frames: 17,
-          fps: 8
-        };
-        if (character) {
-          const imageResponse = await fetch(character.url);
-          if (!imageResponse.ok) throw new Error('Could not read the selected character image. Please upload it again.');
-          const imageBlob = await imageResponse.blob();
-          const imageBase64 = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
-            reader.onerror = () => reject(new Error('Could not prepare the character image for LTX.'));
-            reader.readAsDataURL(imageBlob);
-          });
-          payload.image_base64 = imageBase64;
-          payload.image_mime_type = imageBlob.type || 'image/png';
-        }
-        setStatus(character ? 'LTX is animating your character image…' : 'LTX is generating a video from your text prompt…');
-        const response = await fetch(LTX_API_URL + '/api/generate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        const data: any = await response.json();
-        if (!response.ok) throw new Error(data?.detail || data?.error || 'LTX could not generate this clip.');
-        if (!data?.video_url) throw new Error('LTX finished but did not return a video URL.');
-        setVideoUrl(new URL(data.video_url, LTX_API_URL).toString());
-        setLastError('');
-        setStatus('LTX video generated. Play it below and save it to your device.');
-        return;
-      }
-
       const imageResponse = await fetch(character.url);
       if (!imageResponse.ok) throw new Error('Could not read the selected character image. Please upload it again.');
       const imageBlob = await imageResponse.blob();
-      const imageFile = new File([imageBlob], (character.name || 'character') + '.webp', { type: imageBlob.type || 'image/webp' });
-
-      const { Client, handle_file } = await import('@gradio/client');
-      const client = await Client.connect(SPACE, {
-        status_callback: (spaceStatus: any) => {
-          if (spaceStatus?.status === 'running') setStatus('WAN 2.2 is ready. Submitting your character and motion prompt…');
-          else if (spaceStatus?.status === 'sleeping' || spaceStatus?.status === 'building') setStatus('Waking up the WAN 2.2 service. Please wait…');
-          else if (spaceStatus?.status === 'error' || spaceStatus?.status === 'space_error') setStatus('The WAN 2.2 service is reporting a problem. Please try again later.');
-        }
+      const imageBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+        reader.onerror = () => reject(new Error('Could not prepare the character image for Wan2.1.'));
+        reader.readAsDataURL(imageBlob);
       });
-
-      setStatus('WAN 2.2 is processing your request. Please wait and avoid refreshing the page.');
-      const result: any = await client.predict('/generate_video', {
-        input_image: handle_file(imageFile),
-        prompt: prompt.trim().slice(0, 1200),
-        steps: 6,
-        negative_prompt: NEGATIVE_PROMPT,
-        duration_seconds: 3.5,
-        guidance_scale: 1,
-        guidance_scale_2: 1,
-        seed: Math.floor(Math.random() * 2147483647),
-        randomize_seed: true
+      const response = await fetch(WAN21_API_URL + '/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: prompt.trim().slice(0, 1200),
+          image_base64: imageBase64,
+          image_mime_type: imageBlob.type || 'image/png',
+          frames: 17,
+          fps: 8,
+          width: 832,
+          height: 480
+        })
       });
-      const generatedUrl = findVideo(result?.data?.[0] ?? result?.data);
-      if (!generatedUrl) throw new Error('WAN 2.2 returned a response, but AnimateText Studio could not find the video link. The Space may have changed its output format.');
-      setVideoUrl(generatedUrl);
-      setLastError('');
-      setStatus('Video generated. Play it below and save it soon—the hosted file link may be temporary.');
+      const data: any = await response.json();
+      if (!response.ok) throw new Error(data?.detail || data?.error || 'Wan2.1 VACE could not generate this clip.');
+      if (!data?.video_url) throw new Error('Wan2.1 VACE finished but did not return a video URL.');
+      setVideoUrl(/^https?:\/\//i.test(data.video_url) ? data.video_url : WAN21_API_URL + data.video_url);
+      setStatus('Wan2.1 VACE returned a video. Play it below and save it to your device.');
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Unknown error.';
       setLastError(detail);
-      setDiagnostics((current) => [...current, { time: new Date().toISOString(), message: 'WAN generation: ' + detail }].slice(-20));
-      const lower = detail.toLowerCase();
-      if (lower.includes('quota') || lower.includes('zero gpu') || lower.includes('daily') || lower.includes('rate limit')) {
-        setStatus('WAN 2.2 free GPU quota or rate limit reached. Your prompt and character are safe; wait for the allowance to reset before trying again. Details: ' + detail);
-      } else {
-        setStatus((LTX_API_URL ? 'LTX could not generate the clip. Check that the LTX GPU service is running and its model dependencies are installed. Details: ' : 'WAN 2.2 could not generate the clip. Check whether the original Space is available and whether your free allowance has reset. Details: ') + detail);
-      }
+      setDiagnostics((current) => [...current, { time: new Date().toISOString(), message: 'Wan2.1 VACE generation: ' + detail }].slice(-20));
+      setStatus('Wan2.1 VACE could not generate the clip. Check that your Kaggle GPU service is running and reachable. Details: ' + detail);
     } finally {
       setBusy(false);
     }
@@ -291,8 +220,8 @@ export default function App() {
   return (
     <div className="wan-app">
       <header className="wan-header">
-        <div className="wan-brand"><div className="wan-logo"><Film size={23} /></div><div><h1>AnimateText Studio</h1><p>AI character video generator</p></div></div>
-        <a href="https://huggingface.co/spaces/zerogpu-aoti/wan2-2-fp8da-aoti-faster" target="_blank" rel="noreferrer">Open original WAN 2.2 ↗</a>
+        <div className="wan-brand"><div className="wan-logo"><Film size={23} /></div><div><h1>AnimateText Studio</h1><p>Wan2.1 VACE character video generator</p></div></div>
+        <a href="https://github.com/Wan-Video/Wan2.1" target="_blank" rel="noreferrer">Wan2.1 project ↗</a>
       </header>
 
       <main className="wan-layout">
@@ -320,12 +249,12 @@ export default function App() {
           <h2 className="wan-prompt-heading"><WandSparkles size={18} /> 2. Describe the movement</h2>
           <label className="wan-label" htmlFor="motion-prompt">Scene and movement prompt</label>
           <textarea id="motion-prompt" value={prompt} onChange={(event) => setPrompt(event.target.value)} maxLength={1200} placeholder="Describe how your character should move…" />
-          <p className="wan-help">Describe the action, expression, camera, and background in one prompt. With the optional LTX service connected, you can generate from text alone or animate an uploaded character image. Without it, the WAN connection requires an uploaded image.</p>
-          <button className="wan-generate" onClick={() => void generateVideo()} disabled={busy || (!selectedId && !LTX_API_URL) || !prompt.trim()}>
+          <p className="wan-help">Describe the action, expression, camera, and background in one prompt. Wan2.1 VACE uses your uploaded character image as a reference and generates a moving video from your scene prompt.</p>
+          <button className="wan-generate" onClick={() => void generateVideo()} disabled={busy || !selectedId || !prompt.trim()}>
             {busy ? <><LoaderCircle className="wan-spin" size={18} /> Generating video…</> : <><WandSparkles size={18} /> Generate AI video</>}
           </button>
           <p className="wan-status" aria-live="polite">{status}</p>
-          <p className="wan-quota-note">WAN 2.2 uses a shared free GPU allowance. Each generation can use quota, so avoid repeated tests when the service reports a limit.</p>
+          <p className="wan-quota-note">Wan2.1 VACE runs on the connected Kaggle GPU session. Keep the session active during generation.</p>
         </section>
 
         <section className="wan-panel wan-output-panel">
@@ -363,13 +292,13 @@ export default function App() {
           <button className="wan-send" type="submit" disabled={assistantBusy || !assistantInput.trim()}><Send size={17} /> Send</button>
         </form>
         <div className="wan-quick-actions">
-          <button onClick={() => void sendAssistantMessage('Help me plan a short, funny Sunny and Bloop episode with three scenes and simple actions that WAN 2.2 can animate.')}>Plan a Sunny &amp; Bloop episode</button>
+          <button onClick={() => void sendAssistantMessage('Help me plan a short, funny Sunny and Bloop episode with three scenes and simple actions that Wan2.1 VACE can animate.')}>Plan a Sunny &amp; Bloop episode</button>
           <button onClick={() => void sendAssistantMessage('Improve my current movement prompt for a clear, smooth character animation. Keep it simple and preserve the character design.')}>Improve movement prompt</button>
           <button disabled={!lastError || assistantBusy} onClick={() => void sendAssistantMessage('Please diagnose this latest app error and give me the safest next steps: ' + lastError)}>Diagnose latest error</button>
         </div>
         <p className="wan-quota-note">The assistant uses a Gemini API key stored on the server. If it is not configured yet, it will explain the setup. Free-tier limits apply; do not share passwords or API keys in chat.</p>
       </details>
-      <footer className="wan-footer">AI video is generated by the connected WAN service. Voice generation stays in Audio Workshop. Free shared GPU limits still apply.</footer>
+      <footer className="wan-footer">AI video is generated by the connected Wan2.1 VACE GPU service. Voice generation stays in Audio Workshop. Free shared GPU limits still apply.</footer>
     </div>
   );
 }
