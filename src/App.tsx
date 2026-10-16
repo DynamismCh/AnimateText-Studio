@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Bug, Download, Film, ImagePlus, LoaderCircle, MessageCircle, Play, Send, Trash2, WandSparkles } from 'lucide-react';
 import AudioWorkshop from './components/AudioWorkshop';
+import SceneStudio from './components/SceneStudio';
 import { deleteSavedCharacter, loadSavedCharacters, saveCharacterImage, type LocalCharacter } from './lib/localCharacters';
 
 const SPACE = 'zerogpu-aoti/wan2-2-fp8da-aoti-faster';
@@ -308,6 +309,8 @@ export default function App() {
           )}
         </section>
       </main>
+
+      <SceneStudio characters={characters} />
 
       <AudioWorkshop videoUrl={videoUrl} />
 
